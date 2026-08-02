@@ -1,17 +1,67 @@
 """Vendor-neutral broker abstraction.
 
-The ``BrokerAdapter`` port and its supporting types: account state, order
-acknowledgements, position snapshots, and connectivity lifecycle. Concrete
-venue integrations are adapters behind this port.
+The :class:`~atlas.broker.adapter.BrokerAdapter` port and the types it speaks.
+Concrete venue integrations are adapters behind this port, and nothing above it
+knows which one is loaded::
+
+    from atlas.broker import BrokerAdapter, OrderRequest
 
 Boundary:
     Defines the port and its data contracts only. Order sizing, routing and
     risk decisions belong to ``atlas.execution`` and ``atlas.risk``.
 
-ATLAS-TASK-0001 establishes this package as an empty, importable unit with a
-declared responsibility. Its implementation is delivered by a later task.
+The domain vocabulary — ``Order``, ``Position``, ``Tick`` and the rest — lives
+in :mod:`atlas.broker.models` and is imported from there. This package exports
+the port, its capability protocols, and the request types that only the port
+uses, so that the two import paths say which layer a name belongs to.
+
+See ``README.md`` in this directory for the design rationale.
 """
 
 from __future__ import annotations
 
-__all__: list[str] = []
+from atlas.broker.adapter import BrokerAdapter
+from atlas.broker.protocols import (
+    SupportsConnection,
+    SupportsDiagnostics,
+    SupportsMarketData,
+    SupportsStreaming,
+    SupportsTrading,
+)
+from atlas.broker.types import (
+    UNSET,
+    BrokerName,
+    BrokerVersion,
+    CandleHandler,
+    ExecutionID,
+    OrderID,
+    OrderRequest,
+    PositionID,
+    ServerName,
+    SubscriptionID,
+    SymbolName,
+    TickHandler,
+    Unset,
+)
+
+__all__ = [
+    "UNSET",
+    "BrokerAdapter",
+    "BrokerName",
+    "BrokerVersion",
+    "CandleHandler",
+    "ExecutionID",
+    "OrderID",
+    "OrderRequest",
+    "PositionID",
+    "ServerName",
+    "SubscriptionID",
+    "SupportsConnection",
+    "SupportsDiagnostics",
+    "SupportsMarketData",
+    "SupportsStreaming",
+    "SupportsTrading",
+    "SymbolName",
+    "TickHandler",
+    "Unset",
+]
