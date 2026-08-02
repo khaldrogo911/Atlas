@@ -1,0 +1,95 @@
+# ---------------------------------------------------------------------------
+# Python
+# ---------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+sdist/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# ---------------------------------------------------------------------------
+# Virtual environments / dependency managers
+# ---------------------------------------------------------------------------
+.venv/
+venv/
+ENV/
+env/
+.python-version
+
+# poetry.lock IS committed — it is the reproducibility contract for CI and
+# for every deployment image. Do not add it here.
+
+# ---------------------------------------------------------------------------
+# Tooling caches
+# ---------------------------------------------------------------------------
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.cache/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+.hypothesis/
+.tox/
+.nox/
+
+# ---------------------------------------------------------------------------
+# Secrets and local configuration — never commit resolved credentials
+# ---------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+secrets/
+config/local/
+
+# ---------------------------------------------------------------------------
+# Data and datastores — market data and DuckDB files are never versioned
+# ---------------------------------------------------------------------------
+data/
+*.duckdb
+*.duckdb.wal
+*.db
+*.sqlite
+*.sqlite3
+*.parquet
+
+# ---------------------------------------------------------------------------
+# Logs and runtime artefacts
+# ---------------------------------------------------------------------------
+logs/
+*.log
+*.pid
+
+# ---------------------------------------------------------------------------
+# Documentation build output
+# ---------------------------------------------------------------------------
+site/
+
+# ---------------------------------------------------------------------------
+# Editors and OS
+# ---------------------------------------------------------------------------
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini

@@ -1,0 +1,73 @@
+# Ruff — lint + import sorting for Project Atlas.
+# Black owns formatting; Ruff's formatter is intentionally not used so there is
+# exactly one formatter in the toolchain.
+
+target-version = "py312"
+line-length = 100
+src = ["packages", "apps", "tests", "scripts"]
+extend-exclude = [".venv", "dist", "build"]
+
+[lint]
+select = [
+    "F",    # pyflakes
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "I",    # isort
+    "N",    # pep8-naming
+    "D",    # pydocstyle
+    "UP",   # pyupgrade
+    "ANN",  # flake8-annotations
+    "ASYNC",# flake8-async
+    "S",    # flake8-bandit
+    "B",    # flake8-bugbear
+    "A",    # flake8-builtins
+    "C4",   # flake8-comprehensions
+    "DTZ",  # flake8-datetimez
+    "T10",  # flake8-debugger
+    "EM",   # flake8-errmsg
+    "ISC",  # flake8-implicit-str-concat
+    "G",    # flake8-logging-format
+    "PIE",  # flake8-pie
+    "T20",  # flake8-print
+    "PT",   # flake8-pytest-style
+    "RET",  # flake8-return
+    "SIM",  # flake8-simplify
+    "TID",  # flake8-tidy-imports
+    "TC",   # flake8-type-checking
+    "ARG",  # flake8-unused-arguments
+    "PTH",  # flake8-use-pathlib
+    "ERA",  # eradicate
+    "PL",   # pylint
+    "TRY",  # tryceratops
+    "PERF", # perflint
+    "RUF",  # ruff-specific
+]
+ignore = [
+    "D203",   # incompatible with D211 (no blank line before class docstring)
+    "D213",   # incompatible with D212 (multi-line summary on first line)
+    "ISC001", # conflicts with Black's implicit-string-concat handling
+    "COM812", # conflicts with Black's trailing-comma handling
+]
+
+[lint.per-file-ignores]
+"tests/**/*.py" = [
+    "S101",    # assert is the point of a test
+    "PLR2004", # literal comparisons are readable in assertions
+    "D101",    # test class names group cases; they document themselves
+    "D102",
+    "D103",
+]
+"scripts/**/*.py" = ["T201"] # operator scripts print to stdout by design
+
+[lint.pydocstyle]
+convention = "google"
+
+[lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+[lint.isort]
+known-first-party = ["atlas"]
+required-imports = ["from __future__ import annotations"]
+
+[lint.pylint]
+max-args = 6

@@ -1,0 +1,70 @@
+# ==============================================================================
+# Project Atlas — pre-commit hooks.
+#
+# Ruff, Black and MyPy run through the project's own Poetry environment rather
+# than through pinned mirror repositories. That costs hermeticity and buys
+# something worth more: the versions enforced on commit are, by construction,
+# the versions CI enforces. There is one source of truth (poetry.lock) and no
+# way for a hook pin to drift away from it.
+#
+#   poetry run pre-commit install
+#   poetry run pre-commit run --all-files
+# ==============================================================================
+
+minimum_pre_commit_version: "4.0.0"
+default_install_hook_types: [pre-commit, commit-msg]
+fail_fast: false
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+        args: [--fix=lf]
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: check-added-large-files
+        args: [--maxkb=512]
+      - id: detect-private-key
+      - id: check-executables-have-shebangs
+
+  - repo: local
+    hooks:
+      - id: ruff
+        name: ruff (lint + import order)
+        entry: poetry run ruff check --force-exclude
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+
+      - id: black
+        name: black (format check)
+        entry: poetry run black --check --diff
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+
+      - id: mypy
+        name: mypy (strict)
+        entry: poetry run mypy
+        language: system
+        types: [python]
+        # The monorepo is type-checked as a whole; per-file invocation would
+        # hide cross-package errors.
+        pass_filenames: false
+        require_serial: true
+
+      - id: pytest
+        name: pytest (unit + contract)
+        entry: poetry run pytest -m "unit or contract" -q
+        language: system
+        types: [python]
+        pass_filenames: false
+        require_serial: true
+        stages: [pre-push]

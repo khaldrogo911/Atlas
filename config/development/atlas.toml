@@ -1,0 +1,19 @@
+# ==============================================================================
+# Development layer — local workstation.
+#
+# Optimised for feedback speed and readability. Never used against a funded
+# account.
+# ==============================================================================
+
+debug = true
+
+[logging]
+level = "DEBUG"
+format = "console"
+
+[postgres]
+pool_min_size = 1
+pool_max_size = 5
+
+[duckdb]
+memory_limit = "2GB"

@@ -1,0 +1,28 @@
+# Normalise line endings in the repository to LF. Without this, a clone on a
+# Windows machine with core.autocrlf=true rewrites shell scripts with CRLF, and
+# the Linux CI container then fails them with a bare `bad interpreter` error
+# that points nowhere near the cause.
+* text=auto eol=lf
+
+# Files that MUST be LF regardless of any local git configuration, because
+# something other than git parses them.
+*.sh        text eol=lf
+Dockerfile  text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+
+# Files that must be CRLF, because PowerShell here-strings and some Windows
+# tooling are sensitive to it.
+*.ps1       text eol=crlf
+
+# Binary — never diffed, never converted.
+*.png       binary
+*.jpg       binary
+*.ico       binary
+*.pdf       binary
+*.parquet   binary
+*.duckdb    binary
+
+# Generated: collapse in diffs and exclude from language statistics, but still
+# reviewable on demand.
+poetry.lock linguist-generated=true -diff

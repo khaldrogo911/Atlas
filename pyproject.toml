@@ -1,0 +1,103 @@
+[project]
+name = "atlas"
+version = "0.1.0a0"
+description = "Project Atlas — institutional-grade AI-assisted quantitative Forex trading platform."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.12,<3.15"
+authors = [{ name = "Project Atlas Engineering" }]
+keywords = ["quantitative-finance", "forex", "trading", "platform"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Financial and Insurance Industry",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Typing :: Typed",
+]
+
+# Runtime dependencies. Deliberately minimal: ATLAS-TASK-0001 establishes the
+# engineering foundation only. Datastore drivers are declared here because they
+# are part of the committed platform stack, not because they are exercised yet.
+dependencies = [
+    "pydantic>=2.11,<3.0",
+    "pydantic-settings>=2.8,<3.0",
+    "psycopg[binary,pool]>=3.2,<4.0",
+    "redis>=5.2,<7.0",
+    "duckdb>=1.1,<2.0",
+]
+
+[project.urls]
+Documentation = "https://github.com/project-atlas/atlas/tree/main/docs"
+Repository = "https://github.com/project-atlas/atlas"
+
+[project.scripts]
+atlas-core = "atlas.apps.core.__main__:main"
+
+[build-system]
+requires = ["poetry-core>=2.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+# ---------------------------------------------------------------------------
+# Poetry — monorepo package map
+#
+# Every library lives under the PEP 420 implicit namespace package `atlas`.
+# Each entry below adds one source root; Poetry's editable install links all of
+# them, so `atlas.common`, `atlas.config`, ... resolve as a single namespace.
+# ---------------------------------------------------------------------------
+[tool.poetry]
+requires-poetry = ">=2.0"
+packages = [
+    { include = "atlas", from = "packages/common/src" },
+    { include = "atlas", from = "packages/config/src" },
+    { include = "atlas", from = "packages/events/src" },
+    { include = "atlas", from = "packages/broker/src" },
+    { include = "atlas", from = "packages/market/src" },
+    { include = "atlas", from = "packages/features/src" },
+    { include = "atlas", from = "packages/regime/src" },
+    { include = "atlas", from = "packages/strategy/src" },
+    { include = "atlas", from = "packages/ai/src" },
+    { include = "atlas", from = "packages/risk/src" },
+    { include = "atlas", from = "packages/execution/src" },
+    { include = "atlas", from = "packages/notification/src" },
+    { include = "atlas", from = "packages/analytics/src" },
+    { include = "atlas", from = "packages/learning/src" },
+    { include = "atlas", from = "packages/audit/src" },
+    { include = "atlas", from = "apps/atlas-core/src" },
+    { include = "atlas", from = "apps/dashboard/src" },
+    { include = "atlas", from = "apps/research/src" },
+]
+
+[tool.poetry.group.dev.dependencies]
+ruff = ">=0.9,<1.0"
+black = ">=25.1,<26.0"
+mypy = ">=1.15,<2.0"
+pre-commit = ">=4.1,<5.0"
+
+[tool.poetry.group.test.dependencies]
+pytest = ">=8.3,<10.0"
+pytest-cov = ">=6.0,<8.0"
+pytest-asyncio = ">=0.25,<2.0"
+
+[tool.poetry.group.docs.dependencies]
+mkdocs = ">=1.6,<2.0"
+mkdocs-material = ">=9.6,<10.0"
+
+# ---------------------------------------------------------------------------
+# Black — Ruff, pytest and MyPy are configured in their dedicated files
+# (ruff.toml, pytest.ini, mypy.ini). Black has no standalone config file
+# format, so it is configured here.
+# ---------------------------------------------------------------------------
+[tool.black]
+line-length = 100
+target-version = ["py312"]
+
+[tool.coverage.run]
+branch = true
+source = ["atlas"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+exclude_lines = ["pragma: no cover", "if TYPE_CHECKING:", "raise NotImplementedError"]

@@ -1,0 +1,120 @@
+# ==============================================================================
+# Project Atlas — local development stack.
+#
+#   cp .env.example .env      # required: POSTGRES_PASSWORD has no default
+#   docker compose config     # validate
+#   docker compose up -d
+#
+# No service carries a default credential. Compose interpolation fails loudly
+# if POSTGRES_PASSWORD is unset rather than falling back to a known value.
+# ==============================================================================
+
+name: atlas
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: atlas-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-atlas}
+      POSTGRES_USER: ${POSTGRES_USER:-atlas}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./infrastructure/database/init:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-atlas} -d ${POSTGRES_DB:-atlas}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - atlas
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  redis:
+    image: redis:7-alpine
+    container_name: atlas-redis
+    restart: unless-stopped
+    # AOF plus an RDB snapshot rule: the event transport must survive a restart.
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1000"]
+    volumes:
+      - redis-data:/data
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks:
+      - atlas
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  atlas-core:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        PYTHON_VERSION: "3.12"
+    image: atlas/atlas-core:0.1.0a0
+    container_name: atlas-core
+    # Deliberate: atlas-core currently performs a configuration self-check and
+    # exits 0. A restarting policy would turn a clean exit into a crash loop.
+    # This becomes "unless-stopped" once the service acquires a run loop.
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      ATLAS_ENV: ${ATLAS_ENV:-development}
+      ATLAS_CONFIG_DIR: /app/config
+      ATLAS_APP_NAME: atlas-core
+      ATLAS_LOGGING__LEVEL: ${ATLAS_LOGGING__LEVEL:-INFO}
+      ATLAS_LOGGING__FORMAT: ${ATLAS_LOGGING__FORMAT:-json}
+      ATLAS_POSTGRES__HOST: postgres
+      ATLAS_POSTGRES__PORT: "5432"
+      ATLAS_POSTGRES__DATABASE: ${POSTGRES_DB:-atlas}
+      ATLAS_POSTGRES__USER: ${POSTGRES_USER:-atlas}
+      ATLAS_POSTGRES__PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      ATLAS_REDIS__HOST: redis
+      ATLAS_REDIS__PORT: "6379"
+      ATLAS_REDIS__DATABASE: "0"
+      ATLAS_DUCKDB__PATH: /app/data/atlas.duckdb
+    volumes:
+      - atlas-data:/app/data
+    networks:
+      - atlas
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  postgres-data:
+    name: atlas-postgres-data
+  redis-data:
+    name: atlas-redis-data
+  atlas-data:
+    name: atlas-core-data
+
+networks:
+  atlas:
+    name: atlas
+    driver: bridge

@@ -1,0 +1,36 @@
+# ==============================================================================
+# Base configuration layer — applied in every environment.
+#
+# This layer holds structural defaults only. It contains NO credentials and no
+# environment-specific endpoints; those arrive from the environment layer and
+# from environment variables. Anything secret belongs in the process
+# environment, never in this file.
+#
+# `environment` is deliberately absent: it is set by ATLAS_ENV and is what
+# selects the layer overlaid on top of this one.
+# ==============================================================================
+
+app_name = "atlas-core"
+debug = false
+
+[logging]
+level = "INFO"
+format = "json"
+
+[postgres]
+host = "localhost"
+port = 5432
+database = "atlas"
+user = "atlas"
+pool_min_size = 1
+pool_max_size = 10
+
+[redis]
+host = "localhost"
+port = 6379
+database = 0
+
+[duckdb]
+path = "./data/atlas.duckdb"
+read_only = false
+memory_limit = "4GB"

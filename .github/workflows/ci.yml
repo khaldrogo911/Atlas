@@ -1,0 +1,115 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# A superseded run on the same ref is wasted compute; cancel it.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.12"
+  POETRY_VERSION: "2.4.1"
+  POETRY_NO_INTERACTION: "1"
+  POETRY_VIRTUALENVS_IN_PROJECT: "true"
+
+jobs:
+  quality:
+    name: Quality Gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Poetry must exist before setup-python so that `cache: poetry` can find
+      # poetry.lock and key the dependency cache on it.
+      - name: Install Poetry
+        run: pipx install "poetry==${{ env.POETRY_VERSION }}"
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: poetry
+
+      - name: Verify the lock file matches pyproject.toml
+        run: poetry check --lock
+
+      - name: Install dependencies
+        run: poetry install --with dev,test --sync
+
+      # Every stage below is a hard gate. No `continue-on-error` anywhere: the
+      # first failure stops the job.
+      - name: Ruff
+        run: poetry run ruff check --output-format=github .
+
+      - name: Black
+        run: poetry run black --check --diff .
+
+      - name: MyPy
+        run: poetry run mypy .
+
+      - name: Pytest
+        run: poetry run pytest --cov --cov-report=xml --cov-report=term-missing
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ github.run_id }}
+          path: coverage.xml
+          if-no-files-found: warn
+          retention-days: 7
+
+  container:
+    name: Container & Compose
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: quality
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Compose interpolation fails closed on a missing POSTGRES_PASSWORD, so
+      # CI supplies a throwaway value the same way an operator supplies a real
+      # one. Nothing here is a default baked into the repository.
+      - name: Materialise a CI environment file
+        run: |
+          cp .env.example .env
+          sed -i "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=ci-throwaway-$RANDOM/" .env
+
+      - name: Validate docker-compose.yml
+        run: docker compose config --quiet
+
+      - name: Build the atlas-core image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: atlas/atlas-core:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # The entrypoint is a configuration self-check. Running it proves the
+      # image can resolve settings and that its invariants hold.
+      - name: Run the image configuration self-check
+        run: |
+          docker run --rm \
+            -e ATLAS_ENV=development \
+            -e ATLAS_POSTGRES__PASSWORD=ci-throwaway \
+            atlas/atlas-core:ci

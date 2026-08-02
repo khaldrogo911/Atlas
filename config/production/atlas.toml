@@ -1,0 +1,24 @@
+# ==============================================================================
+# Production layer — live, funded trading.
+#
+# AtlasSettings enforces additional invariants when ATLAS_ENV=production:
+#   * debug must be false
+#   * logging.format must be "json"
+#   * postgres.password must be supplied through the environment
+#
+# A process that violates any of these refuses to start.
+# ==============================================================================
+
+debug = false
+
+[logging]
+level = "INFO"
+format = "json"
+
+[postgres]
+pool_min_size = 4
+pool_max_size = 20
+
+[duckdb]
+read_only = true
+memory_limit = "8GB"

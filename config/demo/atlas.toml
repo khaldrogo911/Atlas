@@ -1,0 +1,19 @@
+# ==============================================================================
+# Demo layer — full production topology against a non-funded account.
+#
+# Demo exists to be indistinguishable from production in everything except the
+# money at risk. Keep it configured like production, not like development.
+# ==============================================================================
+
+debug = false
+
+[logging]
+level = "INFO"
+format = "json"
+
+[postgres]
+pool_min_size = 2
+pool_max_size = 10
+
+[duckdb]
+memory_limit = "4GB"

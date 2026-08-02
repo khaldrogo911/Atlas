@@ -1,0 +1,44 @@
+# Keep the build context small and free of host state. A leaked .venv would
+# shadow the image's own virtual environment.
+.git/
+.github/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+
+# Secrets and host-local configuration must never enter an image layer.
+.env
+.env.*
+!.env.example
+secrets/
+*.pem
+*.key
+
+data/
+logs/
+*.log
+*.duckdb
+*.duckdb.wal
+
+docs/
+tests/
+scripts/
+infrastructure/
+site/
+dist/
+build/
+
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
