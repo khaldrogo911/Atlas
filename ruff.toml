@@ -67,6 +67,17 @@ convention = "google"
 [lint.flake8-tidy-imports]
 ban-relative-imports = "all"
 
+[lint.flake8-type-checking]
+# Pydantic reads a model's annotations at runtime to build its validators. With
+# `from __future__ import annotations` those annotations are strings resolved
+# against module globals, so an import TC001 moved into a TYPE_CHECKING block
+# raises NameError when the class is defined. These base classes are therefore
+# exempt from the type-checking-block rules.
+runtime-evaluated-base-classes = [
+    "pydantic.BaseModel",
+    "pydantic_settings.BaseSettings",
+]
+
 [lint.isort]
 known-first-party = ["atlas"]
 required-imports = ["from __future__ import annotations"]
