@@ -12,7 +12,9 @@
 # ==============================================================================
 
 minimum_pre_commit_version: "4.0.0"
-default_install_hook_types: [pre-commit, commit-msg]
+# Must list every stage used below. `pre-push` is required or the pytest hook
+# is silently never installed by `pre-commit install`.
+default_install_hook_types: [pre-commit, pre-push]
 fail_fast: false
 
 repos:
@@ -52,7 +54,9 @@ repos:
 
       - id: mypy
         name: mypy (strict)
-        entry: poetry run mypy
+        # The explicit `.` is required: with pass_filenames disabled, mypy is
+        # invoked with no target at all and exits 2 before checking anything.
+        entry: poetry run mypy .
         language: system
         types: [python]
         # The monorepo is type-checked as a whole; per-file invocation would

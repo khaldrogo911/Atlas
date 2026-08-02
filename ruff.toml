@@ -46,8 +46,10 @@ ignore = [
     "D203",   # incompatible with D211 (no blank line before class docstring)
     "D213",   # incompatible with D212 (multi-line summary on first line)
     "ISC001", # conflicts with Black's implicit-string-concat handling
-    "COM812", # conflicts with Black's trailing-comma handling
 ]
+# Note: flake8-commas ("COM") is deliberately absent from `select` — Black owns
+# trailing commas. Do not add COM812 to `ignore`; ignoring an unselected rule is
+# dead configuration that reads as if the rule were active.
 
 [lint.per-file-ignores]
 "tests/**/*.py" = [

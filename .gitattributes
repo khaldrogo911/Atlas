@@ -11,9 +11,15 @@ Dockerfile  text eol=lf
 *.yml       text eol=lf
 *.yaml      text eol=lf
 
-# Files that must be CRLF, because PowerShell here-strings and some Windows
-# tooling are sensitive to it.
-*.ps1       text eol=crlf
+# PowerShell reads LF-terminated scripts without complaint, so *.ps1 stays on
+# the repository-wide LF policy above. A CRLF exception here would be rewritten
+# on every commit by the mixed-line-ending pre-commit hook (--fix=lf), leaving
+# the two configurations permanently fighting over the same file.
+#
+# Add a CRLF exception only for formats that genuinely require it — *.bat and
+# *.cmd, which cmd.exe will not parse with LF endings.
+*.bat       text eol=crlf
+*.cmd       text eol=crlf
 
 # Binary — never diffed, never converted.
 *.png       binary

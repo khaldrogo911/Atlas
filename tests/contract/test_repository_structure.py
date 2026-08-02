@@ -126,6 +126,7 @@ _POWERSHELL_RUN = re.compile(r"'run',\s*'(\w+)'")
 
 _POETRY_VERSION_IN_DOCKERFILE = re.compile(r"^ARG POETRY_VERSION=(\S+)", re.MULTILINE)
 _POETRY_VERSION_IN_WORKFLOW = re.compile(r'^\s*POETRY_VERSION:\s*"?([^"\s]+)"?', re.MULTILINE)
+_CORE_IMAGE_TAG_IN_COMPOSE = re.compile(r"^\s*image:\s*atlas/atlas-core:(\S+)", re.MULTILINE)
 
 
 def _tool_order(path: Path, pattern: re.Pattern[str]) -> list[str]:
@@ -246,6 +247,14 @@ class TestToolchainParity:
         assert _tool_order(CI_WORKFLOW, _POETRY_RUN)
         assert _tool_order(QUALITY_PS1, _POWERSHELL_RUN)
         assert _tool_order(QUALITY_SH, _POWERSHELL_RUN) == []
+
+    def test_the_compose_image_tag_matches_the_project_version(self) -> None:
+        # Two hand-maintained copies of one number drift the moment either is
+        # bumped alone; pyproject.toml is the source of truth.
+        project = _pyproject()["project"]
+        assert isinstance(project, dict)
+        tag = _sole_match(_CORE_IMAGE_TAG_IN_COMPOSE, REPO_ROOT / "docker-compose.yml")
+        assert tag == project["version"]
 
     def test_the_image_and_ci_pin_the_same_poetry(self) -> None:
         # poetry.lock records the version that generated it; a builder on an

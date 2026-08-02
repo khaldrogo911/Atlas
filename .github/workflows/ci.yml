@@ -45,8 +45,10 @@ jobs:
       - name: Verify the lock file matches pyproject.toml
         run: poetry check --lock
 
+      # `poetry sync`, not `poetry install --sync`: the flag is deprecated as of
+      # Poetry 2.x and warns on every run.
       - name: Install dependencies
-        run: poetry install --with dev,test --sync
+        run: poetry sync --with dev,test
 
       # Every stage below is a hard gate. No `continue-on-error` anywhere: the
       # first failure stops the job.
