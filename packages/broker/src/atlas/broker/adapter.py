@@ -22,10 +22,10 @@ produce the same decisions, which is not true of an interleaved async caller.
 
 Errors
 ------
-Implementations raise from a single planned hierarchy, delivered by a later
-task. The names are referenced in the ``Raises`` section of every method below
-so that the contract is written down now, before any adapter exists to shape it
-around one venue's error codes::
+Implementations raise from a single hierarchy, defined in
+:mod:`atlas.broker.exceptions`. Every name below appears in the ``Raises``
+section of a method here, and the shape was written down before any adapter
+existed, so that it is not bent around one venue's error codes::
 
     BrokerError
     ├── BrokerConnectionError

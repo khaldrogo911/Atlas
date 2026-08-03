@@ -24,26 +24,45 @@ from typing import TYPE_CHECKING, Final
 import pytest
 from pydantic import SecretStr, ValidationError
 
+from atlas.broker.exceptions import (
+    BrokerAuthenticationError,
+    BrokerConnectionError,
+    BrokerDataUnavailableError,
+    BrokerError,
+    BrokerInsufficientMarginError,
+    BrokerNotConnectedError,
+    BrokerOrderRejectedError,
+    BrokerPositionNotFoundError,
+    BrokerTimeoutError,
+)
 from atlas.broker.models import ConnectionState
 from atlas.broker.mt5 import connection as connection_module
 from atlas.broker.mt5.connection import (
-    MT5AuthenticationError,
     MT5Config,
-    MT5ConnectionError,
-    MT5DataUnavailableError,
-    MT5Error,
-    MT5NotConnectedError,
     MT5Session,
-    MT5TimeoutError,
+    error_from_retcode,
     load_terminal,
 )
 from atlas.broker.mt5.constants import (
+    MT5_RETCODE_DESCRIPTIONS,
     RES_E_AUTH_FAILED,
     RES_E_AUTO_TRADING_DISABLED,
     RES_E_FAIL,
     RES_E_INTERNAL_FAIL_CONNECT,
     RES_E_INTERNAL_FAIL_TIMEOUT,
     RES_E_NOT_FOUND,
+    RETCODE_SUCCESS_CODES,
+    TRADE_RETCODE_CLIENT_DISABLES_AT,
+    TRADE_RETCODE_CONNECTION,
+    TRADE_RETCODE_DONE,
+    TRADE_RETCODE_DONE_PARTIAL,
+    TRADE_RETCODE_INVALID_ORDER,
+    TRADE_RETCODE_MARKET_CLOSED,
+    TRADE_RETCODE_NO_MONEY,
+    TRADE_RETCODE_PLACED,
+    TRADE_RETCODE_POSITION_CLOSED,
+    TRADE_RETCODE_SERVER_DISABLES_AT,
+    TRADE_RETCODE_TIMEOUT,
 )
 from tests.unit.broker.mt5.conftest import SERVER_OFFSET, FakeTerminal
 
@@ -213,7 +232,7 @@ class TestConnecting:
         terminal.initialize_result = False
         terminal.error = (RES_E_AUTH_FAILED, "Authorization failed")
 
-        with pytest.raises(MT5AuthenticationError, match="could not initialise the terminal"):
+        with pytest.raises(BrokerAuthenticationError, match="could not initialise the terminal"):
             session.connect()
 
         assert session.state is ConnectionState.DISCONNECTED
@@ -225,14 +244,14 @@ class TestConnecting:
         terminal.account = None
         terminal.error = (RES_E_AUTH_FAILED, "Authorization failed")
 
-        with pytest.raises(MT5AuthenticationError, match="is not available"):
+        with pytest.raises(BrokerAuthenticationError, match="is not available"):
             session.connect()
 
         assert terminal.shutdown_count == 1
         assert session.state is ConnectionState.DISCONNECTED
 
     def test_a_request_before_connecting_is_refused(self, session: MT5Session) -> None:
-        with pytest.raises(MT5NotConnectedError, match="call connect"):
+        with pytest.raises(BrokerNotConnectedError, match="call connect"):
             session.terminal()
 
     def test_a_factory_that_is_not_callable_is_reported_as_a_connection_fault(
@@ -240,7 +259,7 @@ class TestConnecting:
     ) -> None:
         broken = MT5Session(config, terminal_factory="not a factory")
 
-        with pytest.raises(MT5ConnectionError, match="is not callable"):
+        with pytest.raises(BrokerConnectionError, match="is not callable"):
             broken.connect()
 
 
@@ -254,7 +273,7 @@ class TestDisconnecting:
 
         assert terminal.shutdown_count == 1
         assert session.state is ConnectionState.DISCONNECTED
-        with pytest.raises(MT5NotConnectedError):
+        with pytest.raises(BrokerNotConnectedError):
             session.terminal()
 
     def test_disconnecting_an_unconnected_session_is_not_an_error(
@@ -295,11 +314,11 @@ class TestErrorClassification:
     @pytest.mark.parametrize(
         ("code", "expected"),
         [
-            (RES_E_AUTH_FAILED, MT5AuthenticationError),
-            (RES_E_AUTO_TRADING_DISABLED, MT5AuthenticationError),
-            (RES_E_INTERNAL_FAIL_TIMEOUT, MT5TimeoutError),
-            (RES_E_INTERNAL_FAIL_CONNECT, MT5ConnectionError),
-            (RES_E_NOT_FOUND, MT5DataUnavailableError),
+            (RES_E_AUTH_FAILED, BrokerAuthenticationError),
+            (RES_E_AUTO_TRADING_DISABLED, BrokerAuthenticationError),
+            (RES_E_INTERNAL_FAIL_TIMEOUT, BrokerTimeoutError),
+            (RES_E_INTERNAL_FAIL_CONNECT, BrokerConnectionError),
+            (RES_E_NOT_FOUND, BrokerDataUnavailableError),
         ],
     )
     def test_a_terminal_code_becomes_the_matching_exception(
@@ -307,7 +326,7 @@ class TestErrorClassification:
         session: MT5Session,
         terminal: FakeTerminal,
         code: int,
-        expected: type[MT5Error],
+        expected: type[BrokerError],
     ) -> None:
         # The classification is what a caller retries on. A timeout is worth
         # retrying, a refused credential never is.
@@ -326,7 +345,7 @@ class TestErrorClassification:
 
         error = session.error_from_terminal("while testing")
 
-        assert type(error) is MT5Error
+        assert type(error) is BrokerError
 
     def test_the_message_carries_the_context_and_the_terminal_code(
         self, session: MT5Session, terminal: FakeTerminal
@@ -340,52 +359,115 @@ class TestErrorClassification:
         assert "-1" in str(error)
         assert "Generic failure" in str(error)
 
+    def test_the_terminal_code_survives_on_the_exception(
+        self, session: MT5Session, terminal: FakeTerminal
+    ) -> None:
+        # The classification deliberately throws away the distinction between
+        # codes in one group. Keeping the number is what lets a MetaTrader
+        # 5-specific quirk still be diagnosed afterwards.
+        session.connect()
+        terminal.error = (RES_E_INTERNAL_FAIL_TIMEOUT, "IPC timeout")
+
+        error = session.error_from_terminal("while testing")
+
+        assert error.code == RES_E_INTERNAL_FAIL_TIMEOUT
+        assert error.venue == connection_module.VENUE
+
     def test_classifying_without_a_session_is_refused(self, session: MT5Session) -> None:
-        with pytest.raises(MT5NotConnectedError):
+        with pytest.raises(BrokerNotConnectedError):
             session.error_from_terminal("while testing")
 
 
-class TestExceptionHierarchy:
-    """The temporary hierarchy ATLAS-TASK-0005 replaces.
+class TestRetcodeClassification:
+    """The trade server's verdict on an order, translated.
 
-    The shape is tested, not the classes: a caller writing ``except MT5Error``
-    today should still catch everything after the rename, so the relationships
-    below are what the replacement has to preserve.
+    A separate integer space from the terminal result codes above, classified by
+    a separate table. The two must never be consulted for each other: they
+    overlap in value and mean nothing to one another.
     """
 
     @pytest.mark.parametrize(
-        ("subclass", "parent"),
+        ("retcode", "expected"),
         [
-            (MT5ConnectionError, MT5Error),
-            (MT5NotConnectedError, MT5ConnectionError),
-            (MT5TimeoutError, MT5ConnectionError),
-            (MT5AuthenticationError, MT5Error),
-            (MT5DataUnavailableError, MT5Error),
+            (TRADE_RETCODE_TIMEOUT, BrokerTimeoutError),
+            (TRADE_RETCODE_CONNECTION, BrokerConnectionError),
+            (TRADE_RETCODE_SERVER_DISABLES_AT, BrokerAuthenticationError),
+            (TRADE_RETCODE_CLIENT_DISABLES_AT, BrokerAuthenticationError),
+            (TRADE_RETCODE_NO_MONEY, BrokerInsufficientMarginError),
+            (TRADE_RETCODE_POSITION_CLOSED, BrokerPositionNotFoundError),
+            (TRADE_RETCODE_MARKET_CLOSED, BrokerOrderRejectedError),
+            (TRADE_RETCODE_INVALID_ORDER, BrokerOrderRejectedError),
         ],
     )
-    def test_the_hierarchy_is_catchable_from_the_root(
-        self, subclass: type[MT5Error], parent: type[MT5Error]
+    def test_a_retcode_becomes_the_matching_exception(
+        self, retcode: int, expected: type[BrokerError]
     ) -> None:
-        assert issubclass(subclass, parent)
+        # These are the distinctions a caller acts on: retry, wait for a human,
+        # resize, reconcile, or give up on this order.
+        assert isinstance(error_from_retcode(retcode), expected)
 
     @pytest.mark.parametrize(
-        "exception_type",
-        [
-            MT5Error,
-            MT5ConnectionError,
-            MT5NotConnectedError,
-            MT5TimeoutError,
-            MT5AuthenticationError,
-            MT5DataUnavailableError,
-        ],
+        "retcode", sorted(set(MT5_RETCODE_DESCRIPTIONS) - RETCODE_SUCCESS_CODES)
     )
-    def test_every_temporary_exception_names_its_replacement(
-        self, exception_type: type[MT5Error]
+    def test_every_documented_failure_retcode_is_classified(self, retcode: int) -> None:
+        # Totality is the property that matters. A retcode with no branch would
+        # surface as whatever the fallthrough happened to be, which is how an
+        # unhandled venue condition becomes a silent one.
+        error = error_from_retcode(retcode)
+
+        assert isinstance(error, BrokerError)
+        assert error.code == retcode
+        assert MT5_RETCODE_DESCRIPTIONS[retcode] in str(error)
+
+    def test_an_unknown_retcode_is_a_rejection_rather_than_a_bare_failure(self) -> None:
+        # Reaching this table already establishes that a server saw the order
+        # and declined it. Only the reason is unknown, and the reason changes
+        # the message rather than what the caller must do.
+        error = error_from_retcode(19999)
+
+        assert type(error) is BrokerOrderRejectedError
+        assert error.code == 19999
+
+    @pytest.mark.parametrize(
+        "retcode",
+        [TRADE_RETCODE_PLACED, TRADE_RETCODE_DONE, TRADE_RETCODE_DONE_PARTIAL],
+    )
+    def test_a_success_retcode_is_refused_rather_than_translated(self, retcode: int) -> None:
+        # A partial fill is a real order with a real position behind it. Turning
+        # any of these into a plausible-looking exception would hide the caller's
+        # bug behind a rejection that never happened.
+        with pytest.raises(ValueError, match="reports success"):
+            error_from_retcode(retcode)
+
+    def test_the_server_comment_is_kept_verbatim(self) -> None:
+        # It is the only place a venue-specific reason survives translation.
+        error = error_from_retcode(TRADE_RETCODE_MARKET_CLOSED, "Market closed")
+
+        assert isinstance(error, BrokerOrderRejectedError)
+        assert error.reason == "Market closed"
+        assert "Market closed" in str(error)
+
+    def test_a_rejection_falls_back_to_the_documented_reason(self) -> None:
+        # A server that sends no comment still leaves the caller something
+        # better than a bare number.
+        error = error_from_retcode(TRADE_RETCODE_MARKET_CLOSED)
+
+        assert isinstance(error, BrokerOrderRejectedError)
+        assert error.reason == MT5_RETCODE_DESCRIPTIONS[TRADE_RETCODE_MARKET_CLOSED]
+
+    def test_the_two_code_spaces_are_never_confused(
+        self, session: MT5Session, terminal: FakeTerminal
     ) -> None:
-        # The rename is the whole plan for these classes. A class that does not
-        # say what replaces it is the one that survives the cleanup by accident.
-        assert exception_type.__doc__ is not None
-        assert "ATLAS-TASK-0005" in exception_type.__doc__
+        # RES_E_NOT_FOUND classifies as unavailable data; a trade retcode of the
+        # same shape must not, and vice versa. Sharing a table would make one of
+        # the two silently wrong.
+        session.connect()
+        terminal.error = (RES_E_NOT_FOUND, "Not found")
+
+        assert isinstance(session.error_from_terminal("while testing"), BrokerDataUnavailableError)
+        assert not isinstance(
+            error_from_retcode(TRADE_RETCODE_INVALID_ORDER), BrokerDataUnavailableError
+        )
 
 
 class TestVendorImportBoundary:

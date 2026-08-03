@@ -21,13 +21,14 @@ them is a placeholder that could have been filled in with a plausible-looking
 value:
 
 Trading — ``place_order``, ``modify_order``, ``cancel_order``, ``close_position``
-    Deferred to ATLAS-TASK-0005, because the port requires these four to
-    distinguish ``BrokerOrderRejectedError`` from
-    ``BrokerInsufficientMarginError`` from ``BrokerTimeoutError``, and those
-    classes do not exist yet. Every other method's failure modes are expressible
-    with the temporary exceptions in :mod:`~atlas.broker.mt5.connection`; these
-    are not. Returning an ``Order`` without having sent one would be worse than
-    not implementing them.
+    Not scoped to a task yet. ATLAS-TASK-0005 removed the reason they were
+    blocked — :func:`~atlas.broker.mt5.connection.error_from_retcode` now tells
+    ``BrokerOrderRejectedError`` from ``BrokerInsufficientMarginError`` from
+    ``BrokerTimeoutError`` — but it deliberately stopped at the translation and
+    sent no orders. What remains is not translation: filling mode per
+    instrument, a deviation policy, and reading deals back to report a fill at
+    the price it actually happened. Returning an ``Order`` without having sent
+    one would be worse than not implementing them.
 
 Streaming — ``subscribe_ticks``, ``subscribe_candles``
     The MetaTrader 5 Python API polls. It has no callback registration and no
@@ -52,12 +53,9 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Final
 
 from atlas.broker.adapter import BrokerAdapter
+from atlas.broker.exceptions import BrokerDataUnavailableError, BrokerSymbolNotFoundError
 from atlas.broker.models import Connection, OrderSide, OrderType, SymbolTradeMode
-from atlas.broker.mt5.connection import (
-    MT5DataUnavailableError,
-    MT5Session,
-    MT5SymbolNotFoundError,
-)
+from atlas.broker.mt5.connection import VENUE, MT5Session
 from atlas.broker.mt5.constants import DOMAIN_TO_MT5_ORDER_TYPE, TIMEFRAME_TO_MT5
 from atlas.broker.mt5.mapper import (
     to_account,
@@ -121,11 +119,12 @@ _MICROSECONDS_PER_MILLISECOND: Final = 1000.0
 #: Why the four trading methods raise. Written once because the reason is one
 #: reason, and four paraphrases of it would drift apart.
 _TRADING_DEFERRED: Final = (
-    "{method} is deferred to ATLAS-TASK-0005. The port requires it to "
-    "distinguish an order rejection from insufficient margin from a timeout, "
-    "and the BrokerError hierarchy that expresses those does not exist yet. "
-    "Sending an order that cannot be reported on accurately is worse than "
-    "not sending one."
+    "{method} sends nothing to a venue. Translating a trade server's verdict is "
+    "solved — see atlas.broker.mt5.connection.error_from_retcode — but order "
+    "submission also needs a filling mode per instrument, a deviation policy, "
+    "and a read of the resulting deals to report the price a fill actually got. "
+    "No task has scoped those, and sending an order that cannot be reported on "
+    "accurately is worse than not sending one."
 )
 
 
@@ -176,7 +175,7 @@ class MT5BrokerAdapter(BrokerAdapter):
             The connected terminal.
 
         Raises:
-            MT5NotConnectedError: If no session is established.
+            BrokerNotConnectedError: If no session is established.
         """
         return self._session.terminal()
 
@@ -187,8 +186,8 @@ class MT5BrokerAdapter(BrokerAdapter):
             The structure ``account_info()`` produced.
 
         Raises:
-            MT5NotConnectedError: If no session is established.
-            MT5Error: If the terminal reported no account.
+            BrokerNotConnectedError: If no session is established.
+            BrokerError: If the terminal reported no account.
         """
         raw = self._terminal().account_info()
         if raw is None:
@@ -209,8 +208,8 @@ class MT5BrokerAdapter(BrokerAdapter):
             The terminal's specification for the instrument.
 
         Raises:
-            MT5NotConnectedError: If no session is established.
-            MT5SymbolNotFoundError: If the terminal does not offer it.
+            BrokerNotConnectedError: If no session is established.
+            BrokerSymbolNotFoundError: If the terminal does not offer it.
 
         Notes:
             The port promises case-insensitive matching, and the terminal does
@@ -229,7 +228,7 @@ class MT5BrokerAdapter(BrokerAdapter):
             info = self._find_symbol_ignoring_case(symbol)
         if info is None:
             msg = f"the terminal does not offer instrument {symbol!r}"
-            raise MT5SymbolNotFoundError(msg)
+            raise BrokerSymbolNotFoundError(msg, symbol=symbol, venue=VENUE)
         if select:
             terminal.symbol_select(info.name, True)
         return info
@@ -265,9 +264,9 @@ class MT5BrokerAdapter(BrokerAdapter):
             The rows, oldest first, and the resolved instrument.
 
         Raises:
-            MT5NotConnectedError: If no session is established.
-            MT5SymbolNotFoundError: If the terminal does not offer it.
-            MT5DataUnavailableError: If the terminal holds no bars for it.
+            BrokerNotConnectedError: If no session is established.
+            BrokerSymbolNotFoundError: If the terminal does not offer it.
+            BrokerDataUnavailableError: If the terminal holds no bars for it.
         """
         info = self._resolve_symbol(symbol)
         rows = self._terminal().copy_rates_from_pos(
@@ -275,7 +274,7 @@ class MT5BrokerAdapter(BrokerAdapter):
         )
         if rows is None or len(rows) == 0:
             msg = f"the terminal holds no {timeframe} bars for {info.name!r}"
-            raise MT5DataUnavailableError(msg)
+            raise BrokerDataUnavailableError(msg, venue=VENUE)
         return rows, info
 
     @staticmethod
@@ -328,10 +327,10 @@ class MT5BrokerAdapter(BrokerAdapter):
             The resulting connection state.
 
         Raises:
-            MT5AuthenticationError: If the terminal rejected the credentials.
-            MT5ConnectionError: If the terminal could not be started, or the
+            BrokerAuthenticationError: If the terminal rejected the credentials.
+            BrokerConnectionError: If the terminal could not be started, or the
                 MetaTrader5 package is not installed on this host.
-            MT5TimeoutError: If the terminal did not answer in time.
+            BrokerTimeoutError: If the terminal did not answer in time.
 
         Notes:
             The brokerage's name is read here and cached, because it is the one
@@ -368,9 +367,9 @@ class MT5BrokerAdapter(BrokerAdapter):
             The connection state after the attempt.
 
         Raises:
-            MT5AuthenticationError: If the terminal rejected the credentials.
-            MT5ConnectionError: If the new session could not be established.
-            MT5TimeoutError: If the terminal did not answer in time.
+            BrokerAuthenticationError: If the terminal rejected the credentials.
+            BrokerConnectionError: If the new session could not be established.
+            BrokerTimeoutError: If the terminal did not answer in time.
 
         Notes:
             Exactly one attempt, with no backoff, as the port specifies. There
@@ -409,7 +408,7 @@ class MT5BrokerAdapter(BrokerAdapter):
             The available instruments.
 
         Raises:
-            MT5NotConnectedError: If no session is established.
+            BrokerNotConnectedError: If no session is established.
             ValueError: If any instrument's terms cannot be represented — an
                 unmodelled trade mode, or contract terms that fail the domain
                 model's coherence rules.
@@ -433,8 +432,8 @@ class MT5BrokerAdapter(BrokerAdapter):
             The instrument's specification.
 
         Raises:
-            MT5NotConnectedError: If no session is established.
-            MT5SymbolNotFoundError: If the terminal does not offer it.
+            BrokerNotConnectedError: If no session is established.
+            BrokerSymbolNotFoundError: If the terminal does not offer it.
             ValueError: If the instrument's terms cannot be represented.
         """
         return to_symbol(self._resolve_symbol(symbol, select=False))
@@ -449,9 +448,9 @@ class MT5BrokerAdapter(BrokerAdapter):
             The latest quote the terminal holds.
 
         Raises:
-            MT5NotConnectedError: If no session is established.
-            MT5SymbolNotFoundError: If the terminal does not offer it.
-            MT5DataUnavailableError: If the terminal has published no quote yet.
+            BrokerNotConnectedError: If no session is established.
+            BrokerSymbolNotFoundError: If the terminal does not offer it.
+            BrokerDataUnavailableError: If the terminal has published no quote yet.
 
         Notes:
             No freshness check is applied. Over a weekend this returns Friday's
@@ -462,7 +461,7 @@ class MT5BrokerAdapter(BrokerAdapter):
         raw = self._terminal().symbol_info_tick(info.name)
         if raw is None:
             msg = f"the terminal has published no quote for {info.name!r}"
-            raise MT5DataUnavailableError(msg)
+            raise BrokerDataUnavailableError(msg, venue=VENUE)
         return to_tick(raw, info.name, self._session.clock)
 
     def get_ticks(self, symbols: Sequence[SymbolName]) -> Mapping[SymbolName, Tick]:
@@ -476,8 +475,8 @@ class MT5BrokerAdapter(BrokerAdapter):
             quote. An instrument the terminal has not quoted is absent.
 
         Raises:
-            MT5NotConnectedError: If no session is established.
-            MT5SymbolNotFoundError: If any code is not offered.
+            BrokerNotConnectedError: If no session is established.
+            BrokerSymbolNotFoundError: If any code is not offered.
 
         Notes:
             Every instrument is resolved before any is quoted, so an unknown
@@ -516,9 +515,9 @@ class MT5BrokerAdapter(BrokerAdapter):
             The requested bar.
 
         Raises:
-            MT5NotConnectedError: If no session is established.
-            MT5SymbolNotFoundError: If the terminal does not offer it.
-            MT5DataUnavailableError: If the terminal holds no bars for it.
+            BrokerNotConnectedError: If no session is established.
+            BrokerSymbolNotFoundError: If the terminal does not offer it.
+            BrokerDataUnavailableError: If the terminal holds no bars for it.
 
         Notes:
             The forming bar is index 0 and the most recent closed bar is index
@@ -543,9 +542,9 @@ class MT5BrokerAdapter(BrokerAdapter):
             Up to ``count`` closed bars, oldest first.
 
         Raises:
-            MT5NotConnectedError: If no session is established.
-            MT5SymbolNotFoundError: If the terminal does not offer it.
-            MT5DataUnavailableError: If the terminal holds no bars for it.
+            BrokerNotConnectedError: If no session is established.
+            BrokerSymbolNotFoundError: If the terminal does not offer it.
+            BrokerDataUnavailableError: If the terminal holds no bars for it.
             ValueError: If ``count`` is less than 1.
         """
         if count < 1:
@@ -576,8 +575,8 @@ class MT5BrokerAdapter(BrokerAdapter):
             Closed bars whose open time falls in ``[start, end)``, oldest first.
 
         Raises:
-            MT5NotConnectedError: If no session is established.
-            MT5SymbolNotFoundError: If the terminal does not offer it.
+            BrokerNotConnectedError: If no session is established.
+            BrokerSymbolNotFoundError: If the terminal does not offer it.
             ValueError: If either bound is naive, or ``end`` is not after
                 ``start``.
 
@@ -719,21 +718,19 @@ class MT5BrokerAdapter(BrokerAdapter):
 
         Raises:
             NotImplementedError: Always. The terminal capability exists —
-                ``order_send`` — but the port requires this method to
-                distinguish a rejection from insufficient margin from a timeout,
-                and those are ``BrokerOrderRejectedError``,
-                ``BrokerInsufficientMarginError`` and ``BrokerTimeoutError``,
-                which ATLAS-TASK-0005 delivers. Sending an order and collapsing
-                every ``TRADE_RETCODE_*`` into one temporary exception would
-                lose exactly the information a caller needs in order to decide
-                whether to retry, resize or stop.
+                ``order_send`` — and since ATLAS-TASK-0005 so does the
+                translation of its verdict:
+                :func:`~atlas.broker.mt5.connection.error_from_retcode` returns
+                ``BrokerOrderRejectedError``, ``BrokerInsufficientMarginError``
+                or ``BrokerTimeoutError`` as the retcode requires. What is
+                missing is the rest of order submission, which no task has
+                scoped, and a half-specified order is not worth sending.
 
         Notes:
-            TODO(ATLAS-TASK-0005): implement over ``order_send`` once the broker
-            exception hierarchy exists, mapping the ``TRADE_RETCODE_*`` space
-            that :mod:`atlas.broker.mt5.constants` deliberately does not yet
-            define. Filling-mode selection per instrument and a deviation policy
-            are part of that work.
+            TODO: implement over ``order_send``, translating the result with
+            ``error_from_retcode``. The remaining decisions are filling-mode
+            selection per instrument and a deviation policy; neither has an
+            obviously right answer, which is why they are not settled here.
         """
         raise NotImplementedError(_TRADING_DEFERRED.format(method="place_order"))
 
@@ -762,7 +759,7 @@ class MT5BrokerAdapter(BrokerAdapter):
                 :meth:`place_order`.
 
         Notes:
-            TODO(ATLAS-TASK-0005): implement over ``order_send`` with
+            TODO: implement over ``order_send`` with
             ``TRADE_ACTION_MODIFY``. Note that the terminal amends by resending
             the complete order, so this needs a read of the current order to
             fill the fields left ``UNSET`` — an amendment that omits a field
@@ -781,12 +778,11 @@ class MT5BrokerAdapter(BrokerAdapter):
                 :meth:`place_order`. The case that matters here is an order
                 that fills while the cancellation is in flight, which the port
                 requires be reported as a ``FILLED`` order rather than as an
-                error — and telling that apart from a genuine refusal is a
-                retcode distinction that does not exist yet.
+                error. That is a read of the order's resulting state, not a
+                retcode distinction, so the 0005 translation does not settle it.
 
         Notes:
-            TODO(ATLAS-TASK-0005): implement over ``order_send`` with
-            ``TRADE_ACTION_REMOVE``.
+            TODO: implement over ``order_send`` with ``TRADE_ACTION_REMOVE``.
         """
         raise NotImplementedError(_TRADING_DEFERRED.format(method="cancel_order"))
 
@@ -802,7 +798,7 @@ class MT5BrokerAdapter(BrokerAdapter):
                 :meth:`place_order`.
 
         Notes:
-            TODO(ATLAS-TASK-0005): implement by sending an opposing order with
+            TODO: implement by sending an opposing order with
             the ``position`` field set. The port also requires a close filled in
             several parts to be reported as one execution at the
             volume-weighted average price, which means reading the resulting
@@ -820,8 +816,8 @@ class MT5BrokerAdapter(BrokerAdapter):
             reports them.
 
         Raises:
-            MT5NotConnectedError: If no session is established.
-            MT5Error: If the terminal reported no account.
+            BrokerNotConnectedError: If no session is established.
+            BrokerError: If the terminal reported no account.
         """
         return to_account(self._account_info(), self._now())
 
@@ -835,9 +831,9 @@ class MT5BrokerAdapter(BrokerAdapter):
             The matching open positions.
 
         Raises:
-            MT5NotConnectedError: If no session is established.
-            MT5SymbolNotFoundError: If ``symbol`` is given and not offered.
-            MT5DataUnavailableError: If the opening deal of a position cannot be
+            BrokerNotConnectedError: If no session is established.
+            BrokerSymbolNotFoundError: If ``symbol`` is given and not offered.
+            BrokerDataUnavailableError: If the opening deal of a position cannot be
                 read — see the note on commission.
             ValueError: If the terminal reports a position type Atlas does not
                 model.
@@ -876,8 +872,8 @@ class MT5BrokerAdapter(BrokerAdapter):
             negative, because it is a charge.
 
         Raises:
-            MT5NotConnectedError: If no session is established.
-            MT5DataUnavailableError: If the terminal returned no deals. Every
+            BrokerNotConnectedError: If no session is established.
+            BrokerDataUnavailableError: If the terminal returned no deals. Every
                 open position has at least an opening deal, so an empty result
                 means the terminal could not answer, not that the position was
                 free. Reporting zero in that case would be a fabricated number
@@ -889,7 +885,7 @@ class MT5BrokerAdapter(BrokerAdapter):
                 f"the terminal returned no deals for position {ticket}, so its "
                 "commission cannot be established"
             )
-            raise MT5DataUnavailableError(msg)
+            raise BrokerDataUnavailableError(msg, venue=VENUE)
         return sum((to_decimal(deal.commission) for deal in deals), start=to_decimal(0))
 
     def get_orders(self, symbol: SymbolName | None = None) -> Sequence[Order]:
@@ -902,8 +898,8 @@ class MT5BrokerAdapter(BrokerAdapter):
             Orders that have not reached a terminal state.
 
         Raises:
-            MT5NotConnectedError: If no session is established.
-            MT5SymbolNotFoundError: If ``symbol`` is given and not offered.
+            BrokerNotConnectedError: If no session is established.
+            BrokerSymbolNotFoundError: If ``symbol`` is given and not offered.
             ValueError: If the terminal reports an order type or state Atlas
                 does not model.
 
@@ -930,8 +926,8 @@ class MT5BrokerAdapter(BrokerAdapter):
             All open positions.
 
         Raises:
-            MT5NotConnectedError: If no session is established.
-            MT5DataUnavailableError: If a position's opening deal cannot be read.
+            BrokerNotConnectedError: If no session is established.
+            BrokerDataUnavailableError: If a position's opening deal cannot be read.
 
         Notes:
             Delegates to :meth:`get_positions` rather than repeating it, which
@@ -957,11 +953,11 @@ class MT5BrokerAdapter(BrokerAdapter):
             The margin, in the account's currency.
 
         Raises:
-            MT5NotConnectedError: If no session is established.
-            MT5SymbolNotFoundError: If the instrument is not offered.
-            MT5DataUnavailableError: If ``price`` was omitted and the terminal
+            BrokerNotConnectedError: If no session is established.
+            BrokerSymbolNotFoundError: If the instrument is not offered.
+            BrokerDataUnavailableError: If ``price`` was omitted and the terminal
                 has published no quote to evaluate against.
-            MT5Error: If the terminal declined to calculate.
+            BrokerError: If the terminal declined to calculate.
 
         Notes:
             The terminal's own calculation, unmodified. It is evaluated as a
@@ -998,13 +994,13 @@ class MT5BrokerAdapter(BrokerAdapter):
             The ask for a buy, the bid for a sell.
 
         Raises:
-            MT5NotConnectedError: If no session is established.
-            MT5DataUnavailableError: If the terminal has published no quote.
+            BrokerNotConnectedError: If no session is established.
+            BrokerDataUnavailableError: If the terminal has published no quote.
         """
         raw = self._terminal().symbol_info_tick(info.name)
         if raw is None:
             msg = f"the terminal has published no quote for {info.name!r}"
-            raise MT5DataUnavailableError(msg)
+            raise BrokerDataUnavailableError(msg, venue=VENUE)
         tick = to_tick(raw, info.name, self._session.clock)
         return tick.ask if side is OrderSide.BUY else tick.bid
 
@@ -1016,8 +1012,8 @@ class MT5BrokerAdapter(BrokerAdapter):
             maintenance requirement reports a negative value rather than zero.
 
         Raises:
-            MT5NotConnectedError: If no session is established.
-            MT5Error: If the terminal reported no account.
+            BrokerNotConnectedError: If no session is established.
+            BrokerError: If the terminal reported no account.
 
         Notes:
             Reads through :meth:`get_account` rather than the raw structure, so
@@ -1036,9 +1032,9 @@ class MT5BrokerAdapter(BrokerAdapter):
             permitted to trade.
 
         Raises:
-            MT5NotConnectedError: If no session is established.
-            MT5SymbolNotFoundError: If the instrument is not offered.
-            MT5Error: If the terminal reported no account.
+            BrokerNotConnectedError: If no session is established.
+            BrokerSymbolNotFoundError: If the instrument is not offered.
+            BrokerError: If the terminal reported no account.
             ValueError: If the terminal reports a trade mode Atlas does not
                 model.
 
@@ -1094,8 +1090,8 @@ class MT5BrokerAdapter(BrokerAdapter):
             Milliseconds for one round trip to the trade server.
 
         Raises:
-            MT5NotConnectedError: If no session is established.
-            MT5Error: If the terminal did not report its status.
+            BrokerNotConnectedError: If no session is established.
+            BrokerError: If the terminal did not report its status.
 
         Notes:
             This is the terminal's own measurement of its link to the trade
@@ -1155,8 +1151,8 @@ class MT5BrokerAdapter(BrokerAdapter):
             Product name, version and build.
 
         Raises:
-            MT5NotConnectedError: If no session is established.
-            MT5Error: If the terminal did not report its version or status.
+            BrokerNotConnectedError: If no session is established.
+            BrokerError: If the terminal did not report its version or status.
 
         Notes:
             Assembled from two calls, because the terminal splits the product

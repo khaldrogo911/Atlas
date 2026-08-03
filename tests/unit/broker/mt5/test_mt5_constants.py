@@ -85,7 +85,70 @@ DECLARED_CONSTANTS: Final[tuple[str, ...]] = (
     "RES_E_INTERNAL_FAIL_INIT",
     "RES_E_INTERNAL_FAIL_CONNECT",
     "RES_E_INTERNAL_FAIL_TIMEOUT",
+    "TRADE_RETCODE_REQUOTE",
+    "TRADE_RETCODE_REJECT",
+    "TRADE_RETCODE_CANCEL",
+    "TRADE_RETCODE_PLACED",
+    "TRADE_RETCODE_DONE",
+    "TRADE_RETCODE_DONE_PARTIAL",
+    "TRADE_RETCODE_ERROR",
+    "TRADE_RETCODE_TIMEOUT",
+    "TRADE_RETCODE_INVALID",
+    "TRADE_RETCODE_INVALID_VOLUME",
+    "TRADE_RETCODE_INVALID_PRICE",
+    "TRADE_RETCODE_INVALID_STOPS",
+    "TRADE_RETCODE_TRADE_DISABLED",
+    "TRADE_RETCODE_MARKET_CLOSED",
+    "TRADE_RETCODE_NO_MONEY",
+    "TRADE_RETCODE_PRICE_CHANGED",
+    "TRADE_RETCODE_PRICE_OFF",
+    "TRADE_RETCODE_INVALID_EXPIRATION",
+    "TRADE_RETCODE_ORDER_CHANGED",
+    "TRADE_RETCODE_TOO_MANY_REQUESTS",
+    "TRADE_RETCODE_NO_CHANGES",
+    "TRADE_RETCODE_SERVER_DISABLES_AT",
+    "TRADE_RETCODE_CLIENT_DISABLES_AT",
+    "TRADE_RETCODE_LOCKED",
+    "TRADE_RETCODE_FROZEN",
+    "TRADE_RETCODE_INVALID_FILL",
+    "TRADE_RETCODE_CONNECTION",
+    "TRADE_RETCODE_ONLY_REAL",
+    "TRADE_RETCODE_LIMIT_ORDERS",
+    "TRADE_RETCODE_LIMIT_VOLUME",
+    "TRADE_RETCODE_INVALID_ORDER",
+    "TRADE_RETCODE_POSITION_CLOSED",
+    "TRADE_RETCODE_INVALID_CLOSE_VOLUME",
+    "TRADE_RETCODE_CLOSE_ORDER_EXIST",
+    "TRADE_RETCODE_LIMIT_POSITIONS",
+    "TRADE_RETCODE_REJECT_CANCEL",
+    "TRADE_RETCODE_LONG_ONLY",
+    "TRADE_RETCODE_SHORT_ONLY",
+    "TRADE_RETCODE_CLOSE_ONLY",
+    "TRADE_RETCODE_FIFO_CLOSE",
 )
+
+#: Prefixes that mark a constant as the vendor's rather than Atlas's own.
+#:
+#: Everything a module-level name with one of these prefixes declares must
+#: appear in :data:`DECLARED_CONSTANTS`, so that a constant added without a
+#: vendor check fails here rather than on a live trade server.
+VENDOR_PREFIXES: Final[tuple[str, ...]] = (
+    "TIMEFRAME_",
+    "ORDER_TYPE_",
+    "ORDER_STATE_",
+    "POSITION_TYPE_",
+    "SYMBOL_TRADE_MODE_",
+    "RES_S_",
+    "RES_E_",
+    "TRADE_RETCODE_",
+)
+
+#: Names that carry a vendor prefix but are Atlas's own.
+#:
+#: ``TIMEFRAME_HOUR_FLAG`` is the bit MetaTrader 5 sets on hourly and longer
+#: codes. The vendor never names it — it is only implied by the codes — so
+#: there is nothing to compare it against.
+ATLAS_OWN_CONSTANTS: Final = frozenset({"TIMEFRAME_HOUR_FLAG"})
 
 #: Every function of the vendor package the ``Terminal`` protocol declares.
 DECLARED_FUNCTIONS: Final[tuple[str, ...]] = (
@@ -252,6 +315,92 @@ class TestErrorCodeGroups:
         # retrying cannot fix it — a human has to enable it in the terminal.
         assert constants.RES_E_AUTO_TRADING_DISABLED in constants.AUTHENTICATION_ERROR_CODES
         assert constants.RES_E_AUTO_TRADING_DISABLED not in constants.CONNECTION_ERROR_CODES
+
+
+class TestRetcodeGroups:
+    """The trade server's result codes, which are a second, unrelated space.
+
+    ``RES_E_*`` says whether the terminal could be spoken to; a retcode says
+    what a trade server did with a request it received. The two overlap
+    numerically — ``RES_E_FAIL`` is ``-1`` and every retcode is five digits —
+    so the only thing keeping them apart is that each has its own table.
+    """
+
+    @staticmethod
+    def _failure_groups() -> tuple[frozenset[int], ...]:
+        """Return every retcode group that classifies a failure.
+
+        Returns:
+            The groups, excluding the success codes.
+        """
+        return (
+            constants.RETCODE_TIMEOUT_CODES,
+            constants.RETCODE_CONNECTION_CODES,
+            constants.RETCODE_AUTHENTICATION_CODES,
+            constants.RETCODE_INSUFFICIENT_MARGIN_CODES,
+            constants.RETCODE_POSITION_NOT_FOUND_CODES,
+        )
+
+    def test_the_groups_do_not_overlap(self) -> None:
+        # As above: a retcode in two groups would classify differently
+        # depending on which group was consulted first.
+        groups = (constants.RETCODE_SUCCESS_CODES, *self._failure_groups())
+        total = sum(len(group) for group in groups)
+
+        assert len(set[int]().union(*groups)) == total
+
+    def test_every_described_retcode_is_a_declared_constant(self) -> None:
+        declared = {
+            getattr(constants, name)
+            for name in DECLARED_CONSTANTS
+            if name.startswith("TRADE_RETCODE_")
+        }
+
+        assert set(constants.MT5_RETCODE_DESCRIPTIONS) == declared
+
+    def test_every_grouped_retcode_is_described(self) -> None:
+        # A grouped code missing from the description table would classify
+        # correctly and then report itself as an "unrecognised retcode".
+        grouped = set[int]().union(constants.RETCODE_SUCCESS_CODES, *self._failure_groups())
+
+        assert grouped <= set(constants.MT5_RETCODE_DESCRIPTIONS)
+
+    def test_a_partial_fill_counts_as_success(self) -> None:
+        # 10009 and 10010 both mean the server acted. Treating a partial fill
+        # as a failure would raise on an order that is in fact working.
+        assert constants.TRADE_RETCODE_DONE_PARTIAL in constants.RETCODE_SUCCESS_CODES
+        assert constants.TRADE_RETCODE_DONE in constants.RETCODE_SUCCESS_CODES
+        assert constants.TRADE_RETCODE_PLACED in constants.RETCODE_SUCCESS_CODES
+
+    def test_both_sides_disabling_algorithmic_trading_are_authentication_faults(self) -> None:
+        # Same reasoning as RES_E_AUTO_TRADING_DISABLED above: no amount of
+        # retrying turns a disabled account or terminal into an enabled one.
+        group = constants.RETCODE_AUTHENTICATION_CODES
+
+        assert constants.TRADE_RETCODE_SERVER_DISABLES_AT in group
+        assert constants.TRADE_RETCODE_CLIENT_DISABLES_AT in group
+        assert len(group) == 2
+
+
+class TestDeclaredConstantCoverage:
+    def test_every_vendor_constant_is_checked_against_the_vendor(self) -> None:
+        # DECLARED_CONSTANTS is hand-maintained, and the check it feeds is the
+        # only one that can catch a transcription slip. A constant added to the
+        # module and forgotten here would never be compared to anything.
+        present = {
+            name
+            for name in constants.__all__
+            if name.startswith(VENDOR_PREFIXES) and isinstance(getattr(constants, name), int)
+        }
+
+        assert present - ATLAS_OWN_CONSTANTS == set(DECLARED_CONSTANTS)
+
+    def test_the_exemption_list_is_not_a_way_round_the_check(self) -> None:
+        # An exemption is only legitimate for a name the vendor does not
+        # define. One added for a name the vendor does define would remove the
+        # only comparison that constant ever gets.
+        assert ATLAS_OWN_CONSTANTS.isdisjoint(DECLARED_CONSTANTS)
+        assert all(name.startswith(VENDOR_PREFIXES) for name in ATLAS_OWN_CONSTANTS)
 
 
 class TestAgainstTheInstalledPackage:

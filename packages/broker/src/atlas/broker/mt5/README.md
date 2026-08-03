@@ -39,7 +39,7 @@ adapter.py     the BrokerAdapter implementation     → all of the above
 | --- | --- | --- |
 | `constants.py` | Every MetaTrader 5 integer Atlas depends on, and the tables built from them | Any logic |
 | `mapper.py` | Pure functions from vendor structures to domain models, and the `Protocol`s describing those structures | Terminal calls, clock reads, global state |
-| `connection.py` | `MT5Config`, the lazy `import MetaTrader5`, the `Terminal` protocol, the session state machine, the temporary exceptions | Domain models |
+| `connection.py` | `MT5Config`, the lazy `import MetaTrader5`, the `Terminal` protocol, the session state machine, and both error-code → `BrokerError` tables | Domain models, exception classes of its own |
 | `adapter.py` | Which terminal call answers which port method | Translation tables, field arithmetic, connection state |
 
 The split between `adapter.py` and `mapper.py` is the load-bearing one. It means
@@ -140,21 +140,22 @@ Two further rules:
 Seven of the port's thirty-one methods raise `NotImplementedError`. None is a
 placeholder that could have been filled with a plausible value.
 
-### Trading — deferred to ATLAS-TASK-0005
+### Trading — not scoped to a task
 
 `place_order`, `modify_order`, `cancel_order`, `close_position`.
 
-The terminal capability exists (`order_send`). What does not exist is the broker
-exception hierarchy. The port requires these four methods to distinguish
-`BrokerOrderRejectedError` from `BrokerInsufficientMarginError` from
-`BrokerTimeoutError`; every other method's failure modes are expressible with the
-temporary exceptions in `connection.py`, and these are not. Sending an order and
-collapsing the whole `TRADE_RETCODE_*` space into one temporary exception would
-destroy exactly the information a caller needs in order to decide whether to
-retry, resize or stop.
+The terminal capability exists (`order_send`), and since ATLAS-TASK-0005 so does
+the translation of its verdict: `error_from_retcode` in `connection.py` turns any
+`TRADE_RETCODE_*` into `BrokerOrderRejectedError`,
+`BrokerInsufficientMarginError`, `BrokerTimeoutError`, `BrokerConnectionError`,
+`BrokerAuthenticationError` or `BrokerPositionNotFoundError`, keeping the venue's
+own number and comment on the exception.
 
-`constants.py` therefore defines the terminal's `RES_E_*` IPC result codes and
-deliberately does not yet define `TRADE_RETCODE_*`.
+What is missing is the rest of order submission, and none of it is translation: a
+filling mode chosen per instrument, a deviation policy, and a read of the
+resulting deals so a fill is reported at the price it actually got rather than
+the price that was asked for. ATLAS-TASK-0005 stopped at the boundary
+deliberately, and no task has scoped the remainder.
 
 ### Streaming — no push channel exists
 
@@ -221,23 +222,51 @@ be implemented truthfully. The no-fabrication rule wins.
   value. The domain model requires the field, so leaving it unset is not
   available.
 
-### Temporary exceptions
+## Errors
 
-`connection.py` defines a private hierarchy — `MT5Error`, `MT5ConnectionError`,
-`MT5NotConnectedError`, `MT5TimeoutError`, `MT5AuthenticationError`,
-`MT5RequestError`, `MT5SymbolNotFoundError`, `MT5DataUnavailableError` — so that
-failures are typed and distinguishable rather than bare `RuntimeError`s. Each
-class carries a `TODO(ATLAS-TASK-0005)` naming the `BrokerError` subclass that
-replaces it. The replacement is expected to be a rename plus a change of base
-class: no call site should have to move.
+Every failure that leaves this package is an `atlas.broker.exceptions` type. This
+package defines no exception classes of its own, and no MetaTrader 5 number
+reaches a caller uninterpreted.
+
+MetaTrader 5 reports failure as an integer in two unrelated spaces, and
+`connection.py` classifies them with two separate tables that must never be
+merged:
+
+| Space | Source | Answers | Classified by |
+| --- | --- | --- | --- |
+| `RES_E_*` | `last_error()` | did the request reach a trade server | `MT5Session.error_from_terminal` |
+| `TRADE_RETCODE_*` | an order result's `retcode` | what the server did with the order | `error_from_retcode` |
+
+Both are total. An unrecognised `RES_E_*` becomes a bare `BrokerError`, because
+guessing a category would tell a caller to retry something it should not. An
+unrecognised `TRADE_RETCODE_*` becomes `BrokerOrderRejectedError`, because
+reaching that table already establishes that a server saw the order and declined
+it — only the reason is unknown, and the reason changes the message rather than
+what the caller must do.
+
+The venue's own code is preserved as `error.code` and its comment as
+`error.reason`, so a MetaTrader 5-specific diagnosis is still possible after the
+classification has deliberately thrown the distinction away.
+
+Two mappings are worth stating because they are judgement calls:
+
+- `SERVER_DISABLES_AT` and `CLIENT_DISABLES_AT` classify as
+  `BrokerAuthenticationError`, not as connection faults. Retrying cannot enable
+  algorithmic trading; a human has to. This matches the existing treatment of
+  `RES_E_AUTO_TRADING_DISABLED`.
+- **No retcode maps to `BrokerOrderNotFoundError`.** MetaTrader 5 has none that
+  means "no such order" — `INVALID_ORDER` (10035) means the order *type* is
+  prohibited, which is a rejection. An adapter learns that an order is missing
+  from an empty `orders_get`, so claiming a retcode for it would be a
+  correspondence the vendor does not support.
 
 ## Future work
 
 | Task | What it changes here |
 | --- | --- |
-| **ATLAS-TASK-0005** — broker exception hierarchy | Replaces every temporary exception in `connection.py`; unblocks the four trading methods and the `TRADE_RETCODE_*` table in `constants.py` |
 | **ATLAS-TASK-0006** — `MockBrokerAdapter` | Gives the port a second implementation, which is what proves the contract is not shaped around MetaTrader 5 |
 | **ATLAS-TASK-0007** — `BaseBrokerAdapter` | Takes over thread safety, and any retry or reconnection policy, from every adapter including this one |
+| *(unscheduled)* — trading | `order_send` behind the four trading methods: filling mode per instrument, a deviation policy, and reading deals back to report the price a fill actually got |
 | *(unscheduled)* — streaming | A polling loop behind `subscribe_ticks` and `subscribe_candles`, or a decision that this venue does not stream |
 | *(unscheduled)* — session schedules | Reading trading hours so `can_trade` can answer about the market rather than only about permission |
 | *(unscheduled)* — server clock offset discovery | Currently configured. Recovering it by comparing a fresh tick's timestamp against the host clock during an active session is possible but needs care around weekends and stale quotes |

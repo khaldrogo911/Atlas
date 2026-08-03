@@ -29,6 +29,13 @@ from typing import TYPE_CHECKING, Final
 import pytest
 
 from atlas.broker.adapter import BrokerAdapter
+from atlas.broker.exceptions import (
+    BrokerDataUnavailableError,
+    BrokerError,
+    BrokerNotConnectedError,
+    BrokerSymbolNotFoundError,
+    BrokerTimeoutError,
+)
 from atlas.broker.models import (
     ConnectionState,
     OrderSide,
@@ -39,13 +46,6 @@ from atlas.broker.models import (
     Timeframe,
 )
 from atlas.broker.mt5.adapter import MT5BrokerAdapter
-from atlas.broker.mt5.connection import (
-    MT5DataUnavailableError,
-    MT5Error,
-    MT5NotConnectedError,
-    MT5SymbolNotFoundError,
-    MT5TimeoutError,
-)
 from atlas.broker.mt5.constants import (
     ORDER_STATE_FILLED,
     ORDER_TYPE_BUY,
@@ -180,7 +180,7 @@ class TestPortConformance:
         assert terminal.calls == []
 
     def test_a_request_without_a_session_is_refused(self, offline: MT5BrokerAdapter) -> None:
-        with pytest.raises(MT5NotConnectedError):
+        with pytest.raises(BrokerNotConnectedError):
             offline.get_account()
 
 
@@ -286,7 +286,7 @@ class TestSymbols:
         assert terminal.selected == []
 
     def test_an_unknown_instrument_is_refused(self, adapter: MT5BrokerAdapter) -> None:
-        with pytest.raises(MT5SymbolNotFoundError):
+        with pytest.raises(BrokerSymbolNotFoundError):
             adapter.get_symbol("NOPE")
 
     def test_the_terminals_trade_mode_reaches_the_model(
@@ -322,7 +322,7 @@ class TestTicks:
     ) -> None:
         terminal.ticks = {}
 
-        with pytest.raises(MT5DataUnavailableError):
+        with pytest.raises(BrokerDataUnavailableError):
             adapter.get_tick("EURUSD")
 
     def test_a_batch_is_keyed_by_the_callers_spelling(
@@ -347,7 +347,7 @@ class TestTicks:
     ) -> None:
         # An unknown code fails before a partial snapshot has been assembled,
         # rather than after some of it has been read.
-        with pytest.raises(MT5SymbolNotFoundError):
+        with pytest.raises(BrokerSymbolNotFoundError):
             adapter.get_ticks(["EURUSD", "NOPE"])
 
         assert "symbol_info_tick" not in terminal.calls
@@ -398,7 +398,7 @@ class TestCandles:
     def test_an_instrument_with_no_bars_is_reported_as_unavailable(
         self, adapter: MT5BrokerAdapter
     ) -> None:
-        with pytest.raises(MT5DataUnavailableError):
+        with pytest.raises(BrokerDataUnavailableError):
             adapter.get_candle("EURUSD", Timeframe.M15)
 
     def test_bars_are_returned_oldest_first(
@@ -541,7 +541,7 @@ class TestAccount:
         terminal.account = None
         terminal.error = (RES_E_FAIL, "Generic failure")
 
-        with pytest.raises(MT5Error, match="could not read the account"):
+        with pytest.raises(BrokerError, match="could not read the account"):
             adapter.get_account()
 
     def test_available_margin_is_the_accounts_free_margin(self, adapter: MT5BrokerAdapter) -> None:
@@ -585,7 +585,7 @@ class TestPositions:
         # Reporting zero would be a fabricated number in an accounting field.
         terminal.positions = [FakePosition(ticket=POSITION_TICKET)]
 
-        with pytest.raises(MT5DataUnavailableError, match="commission cannot be established"):
+        with pytest.raises(BrokerDataUnavailableError, match="commission cannot be established"):
             adapter.get_positions()
 
     def test_the_filter_uses_the_terminals_spelling_of_the_instrument(
@@ -678,7 +678,7 @@ class TestRisk:
     ) -> None:
         terminal.ticks = {}
 
-        with pytest.raises(MT5DataUnavailableError):
+        with pytest.raises(BrokerDataUnavailableError):
             adapter.margin_required("EURUSD", OrderSide.BUY, Decimal("0.1"))
 
     def test_a_refused_calculation_is_an_error(
@@ -687,7 +687,7 @@ class TestRisk:
         terminal.margin = None
         terminal.error = (RES_E_FAIL, "Generic failure")
 
-        with pytest.raises(MT5Error, match="could not calculate margin"):
+        with pytest.raises(BrokerError, match="could not calculate margin"):
             adapter.margin_required("EURUSD", OrderSide.BUY, Decimal("0.1"))
 
     def test_a_permitted_instrument_can_be_traded(self, adapter: MT5BrokerAdapter) -> None:
@@ -762,7 +762,7 @@ class TestDiagnostics:
         terminal.status = None
         terminal.error = (RES_E_INTERNAL_FAIL_TIMEOUT, "Timeout")
 
-        with pytest.raises(MT5TimeoutError, match="could not read the terminal status"):
+        with pytest.raises(BrokerTimeoutError, match="could not read the terminal status"):
             adapter.latency()
 
     def test_the_version_is_assembled_from_two_calls(self, adapter: MT5BrokerAdapter) -> None:
@@ -780,18 +780,19 @@ class TestDiagnostics:
         terminal.version_result = None
         terminal.error = (RES_E_FAIL, "Generic failure")
 
-        with pytest.raises(MT5Error, match="could not read the terminal version"):
+        with pytest.raises(BrokerError, match="could not read the terminal version"):
             adapter.version()
 
 
 class TestUnavailable:
     """The seven methods that refuse, and the two that deliberately do not.
 
-    Each refusal names what is missing. That is the whole point of the group:
-    a ``NotImplementedError`` with no reason is indistinguishable from an
-    unfinished method, and the four trading ones in particular must not be
-    mistaken for "not written yet" — they are "cannot be reported on honestly
-    until the exception hierarchy exists".
+    Each refusal names what is missing, and names the method it came from. That
+    is the whole point of the group: a ``NotImplementedError`` with no reason is
+    indistinguishable from an unfinished method, and the four trading ones in
+    particular must not be mistaken for "not written yet" — translating a trade
+    server's verdict is done, and what is still missing is the filling mode,
+    the deviation policy and the deal read-back that a fill report needs.
     """
 
     def test_placing_an_order_is_deferred(self, adapter: MT5BrokerAdapter) -> None:
@@ -799,20 +800,32 @@ class TestUnavailable:
             symbol="EURUSD", side=OrderSide.BUY, type=OrderType.MARKET, volume=Decimal("0.1")
         )
 
-        with pytest.raises(NotImplementedError, match="ATLAS-TASK-0005"):
+        with pytest.raises(NotImplementedError, match="place_order sends nothing to a venue"):
             adapter.place_order(request)
 
     def test_modifying_an_order_is_deferred(self, adapter: MT5BrokerAdapter) -> None:
-        with pytest.raises(NotImplementedError, match="ATLAS-TASK-0005"):
+        with pytest.raises(NotImplementedError, match="modify_order sends nothing to a venue"):
             adapter.modify_order("660001", price=Decimal("1.16"))
 
     def test_cancelling_an_order_is_deferred(self, adapter: MT5BrokerAdapter) -> None:
-        with pytest.raises(NotImplementedError, match="ATLAS-TASK-0005"):
+        with pytest.raises(NotImplementedError, match="cancel_order sends nothing to a venue"):
             adapter.cancel_order("660001")
 
     def test_closing_a_position_is_deferred(self, adapter: MT5BrokerAdapter) -> None:
-        with pytest.raises(NotImplementedError, match="ATLAS-TASK-0005"):
+        with pytest.raises(NotImplementedError, match="close_position sends nothing to a venue"):
             adapter.close_position(str(POSITION_TICKET))
+
+    def test_the_deferral_no_longer_blames_a_missing_exception_hierarchy(
+        self, adapter: MT5BrokerAdapter
+    ) -> None:
+        # The four refusals above used to cite the exception hierarchy as the
+        # blocker. It exists now, so a reason that still names it would be a
+        # stale excuse rather than a statement of what is missing.
+        with pytest.raises(NotImplementedError) as raised:
+            adapter.cancel_order("660001")
+
+        assert "error_from_retcode" in str(raised.value)
+        assert "exception hierarchy" not in str(raised.value)
 
     def test_no_order_reaches_the_terminal(
         self, adapter: MT5BrokerAdapter, terminal: FakeTerminal

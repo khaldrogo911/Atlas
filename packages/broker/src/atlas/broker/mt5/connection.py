@@ -1,7 +1,7 @@
-"""Terminal session ownership: configuration, the vendor import, and state.
+"""Terminal session ownership: configuration, the vendor import, state and errors.
 
-Three things live here, and they are together because they are the three parts
-of "Atlas has a session with a terminal".
+Four things live here, and they are together because they are the four parts of
+"Atlas has a session with a terminal".
 
 The vendor import
     :func:`load_terminal` is the only place in Atlas that imports
@@ -22,14 +22,24 @@ The session
     directly, which is what keeps the vendor surface reachable from exactly one
     object.
 
-Temporary exceptions
---------------------
-ATLAS-TASK-0005 delivers the ``BrokerError`` hierarchy that the port's
-docstrings already reference. Until it lands, this module defines a minimal
-private hierarchy so that failures are still typed and distinguishable rather
-than being reported as bare ``RuntimeError``. Every class below names the
-``BrokerError`` subclass that will replace it, and the replacement is expected
-to be a rename plus a change of base class — no call site should need to move.
+The error translation
+    Failure arrives from MetaTrader 5 as an integer, and this is where it
+    becomes a ``BrokerError``. The tables live next to the session that
+    produces the integers, so no call site anywhere decides what a code means.
+
+Error translation
+-----------------
+The two integer spaces are classified separately and must never share a table.
+
+``last_error()`` describes the terminal's own IPC layer — it answers "did the
+request reach a server". :meth:`MT5Session.error_from_terminal` classifies it.
+
+An order result's ``retcode`` is a trade server's verdict — it answers "what did
+the server do with the order". :func:`error_from_retcode` classifies it.
+
+Both classifications are total: every code produces an exception, and an
+unrecognised one falls back to the broadest honest type rather than to a guess
+that would tell a caller to retry something it should not.
 """
 
 from __future__ import annotations
@@ -41,11 +51,29 @@ from typing import TYPE_CHECKING, Final, Protocol, cast
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
+from atlas.broker.exceptions import (
+    BrokerAuthenticationError,
+    BrokerConnectionError,
+    BrokerDataUnavailableError,
+    BrokerError,
+    BrokerInsufficientMarginError,
+    BrokerNotConnectedError,
+    BrokerOrderRejectedError,
+    BrokerPositionNotFoundError,
+    BrokerTimeoutError,
+)
 from atlas.broker.models import ConnectionState
 from atlas.broker.mt5.constants import (
     AUTHENTICATION_ERROR_CODES,
     CONNECTION_ERROR_CODES,
+    MT5_RETCODE_DESCRIPTIONS,
     NOT_FOUND_ERROR_CODES,
+    RETCODE_AUTHENTICATION_CODES,
+    RETCODE_CONNECTION_CODES,
+    RETCODE_INSUFFICIENT_MARGIN_CODES,
+    RETCODE_POSITION_NOT_FOUND_CODES,
+    RETCODE_SUCCESS_CODES,
+    RETCODE_TIMEOUT_CODES,
     TIMEOUT_ERROR_CODES,
 )
 from atlas.broker.mt5.mapper import ServerClock
@@ -64,92 +92,92 @@ if TYPE_CHECKING:
     )
 
 __all__ = [
-    "MT5AuthenticationError",
+    "VENUE",
     "MT5Config",
-    "MT5ConnectionError",
-    "MT5DataUnavailableError",
-    "MT5Error",
-    "MT5NotConnectedError",
-    "MT5RequestError",
     "MT5Session",
-    "MT5SymbolNotFoundError",
     "MT5TerminalInfo",
     "Terminal",
+    "error_from_retcode",
     "load_terminal",
 ]
 
-
-# --- Temporary exceptions -----------------------------------------------------
-
-
-class MT5Error(Exception):
-    """Base of the temporary MetaTrader 5 error hierarchy.
-
-    TODO(ATLAS-TASK-0005): replace with ``BrokerError``. This class exists only
-    so that the adapter can fail with a type rather than with a bare exception
-    before the broker hierarchy is delivered.
-    """
+#: Recorded on every exception this module raises, so a log line covering more
+#: than one adapter says which venue produced the failure.
+VENUE: Final = "MetaTrader 5"
 
 
-class MT5ConnectionError(MT5Error):
-    """The terminal could not be reached or the IPC channel failed.
-
-    TODO(ATLAS-TASK-0005): replace with ``BrokerConnectionError``.
-    """
+# --- Error translation --------------------------------------------------------
 
 
-class MT5NotConnectedError(MT5ConnectionError):
-    """A request was issued with no session established.
-
-    TODO(ATLAS-TASK-0005): replace with ``BrokerNotConnectedError``.
-    """
-
-
-class MT5TimeoutError(MT5ConnectionError):
-    """The terminal gave up waiting for the trade server.
-
-    TODO(ATLAS-TASK-0005): replace with ``BrokerTimeoutError``.
-    """
-
-
-class MT5AuthenticationError(MT5Error):
-    """The credentials were rejected, or algorithmic trading is disabled.
-
-    TODO(ATLAS-TASK-0005): replace with ``BrokerAuthenticationError``.
-    """
-
-
-class MT5RequestError(MT5Error):
-    """The terminal refused a well-formed request.
-
-    TODO(ATLAS-TASK-0005): replace with ``BrokerRequestError``.
-    """
-
-
-class MT5SymbolNotFoundError(MT5RequestError):
-    """The terminal does not offer the requested instrument.
-
-    TODO(ATLAS-TASK-0005): replace with ``BrokerSymbolNotFoundError``.
-    """
-
-
-class MT5DataUnavailableError(MT5Error):
-    """The terminal holds no data satisfying the request.
-
-    TODO(ATLAS-TASK-0005): replace with ``BrokerDataUnavailableError``.
-    """
-
-
-#: Maps a terminal result code onto the temporary exception that reports it.
-#: Consulted in order; anything unmatched becomes a plain :class:`MT5Error`,
-#: because inventing a category for an unknown code would mislead a caller
-#: deciding whether to retry.
-_ERROR_CODE_GROUPS: Final[tuple[tuple[frozenset[int], type[MT5Error]], ...]] = (
-    (AUTHENTICATION_ERROR_CODES, MT5AuthenticationError),
-    (TIMEOUT_ERROR_CODES, MT5TimeoutError),
-    (CONNECTION_ERROR_CODES, MT5ConnectionError),
-    (NOT_FOUND_ERROR_CODES, MT5DataUnavailableError),
+#: Maps a terminal result code onto the exception that reports it. Consulted in
+#: order; anything unmatched becomes a plain
+#: :class:`~atlas.broker.exceptions.BrokerError`, because inventing a category
+#: for an unknown code would mislead a caller deciding whether to retry.
+_ERROR_CODE_GROUPS: Final[tuple[tuple[frozenset[int], type[BrokerError]], ...]] = (
+    (AUTHENTICATION_ERROR_CODES, BrokerAuthenticationError),
+    (TIMEOUT_ERROR_CODES, BrokerTimeoutError),
+    (CONNECTION_ERROR_CODES, BrokerConnectionError),
+    (NOT_FOUND_ERROR_CODES, BrokerDataUnavailableError),
 )
+
+#: Maps a trade server retcode onto the exception that reports it. Consulted in
+#: order.
+#:
+#: The fallback here is the opposite of the one above: an unrecognised *retcode*
+#: becomes :class:`~atlas.broker.exceptions.BrokerOrderRejectedError` rather
+#: than a bare ``BrokerError``, because reaching this table already establishes
+#: that a trade server saw the order and declined it. Which of its several dozen
+#: reasons applies changes the message, not what the caller must do.
+_RETCODE_GROUPS: Final[tuple[tuple[frozenset[int], type[BrokerError]], ...]] = (
+    (RETCODE_TIMEOUT_CODES, BrokerTimeoutError),
+    (RETCODE_CONNECTION_CODES, BrokerConnectionError),
+    (RETCODE_AUTHENTICATION_CODES, BrokerAuthenticationError),
+    (RETCODE_INSUFFICIENT_MARGIN_CODES, BrokerInsufficientMarginError),
+    (RETCODE_POSITION_NOT_FOUND_CODES, BrokerPositionNotFoundError),
+)
+
+
+def error_from_retcode(retcode: int, comment: str | None = None) -> BrokerError:
+    """Translate a trade server's verdict on an order into a broker exception.
+
+    Args:
+        retcode: The ``retcode`` field of a MetaTrader 5 order result.
+        comment: The server's own comment on the result, if it sent one. Kept
+            verbatim on the exception; it is the only place a venue-specific
+            reason survives translation.
+
+    Returns:
+        The exception to raise, carrying ``retcode`` as its
+        :attr:`~atlas.broker.exceptions.BrokerError.code`. Returned rather than
+        raised so the call site reads ``raise error_from_retcode(...)`` and
+        static analysis can see that control flow ends there.
+
+    Raises:
+        ValueError: If ``retcode`` is one of the success codes. A caller that
+            reaches here with ``TRADE_RETCODE_DONE`` has confused a filled order
+            for a failed one, and turning that into a plausible-looking
+            exception would hide the bug behind a spurious rejection.
+
+    Notes:
+        Total over every failing retcode, including ones MetaTrader 5 may add
+        later: unrecognised codes are rejections, and the number survives on the
+        exception either way.
+    """
+    if retcode in RETCODE_SUCCESS_CODES:
+        msg = f"MetaTrader 5 retcode {retcode} reports success, not a failure"
+        raise ValueError(msg)
+
+    description = MT5_RETCODE_DESCRIPTIONS.get(retcode, "unrecognised retcode")
+    message = f"MetaTrader 5 trade request failed: {description} (retcode {retcode})"
+    if comment:
+        message = f"{message}: {comment}"
+
+    for codes, exception_type in _RETCODE_GROUPS:
+        if retcode in codes:
+            return exception_type(message, venue=VENUE, code=retcode)
+    return BrokerOrderRejectedError(
+        message, reason=comment or description, venue=VENUE, code=retcode
+    )
 
 
 # --- The vendor surface Atlas depends on --------------------------------------
@@ -273,7 +301,7 @@ def load_terminal() -> Terminal:
         The vendor module, typed as :class:`Terminal`.
 
     Raises:
-        MT5ConnectionError: If the package is not installed. Raised as a
+        BrokerConnectionError: If the package is not installed. Raised as a
             connection fault rather than allowed to surface as
             ``ModuleNotFoundError`` because to every caller above the port it is
             the same condition: this venue cannot be reached from this process.
@@ -297,7 +325,7 @@ def load_terminal() -> Terminal:
             "only and Atlas declares it as the optional 'mt5' extra "
             "(poetry install --extras mt5)"
         )
-        raise MT5ConnectionError(msg) from error
+        raise BrokerConnectionError(msg, venue=VENUE) from error
 
     return cast("Terminal", MetaTrader5)
 
@@ -410,13 +438,13 @@ class MT5Session:
             The connected terminal.
 
         Raises:
-            MT5NotConnectedError: If no session is established. Every data path
-                goes through here, so this is the single place the precondition
-                is enforced.
+            BrokerNotConnectedError: If no session is established. Every data
+                path goes through here, so this is the single place the
+                precondition is enforced.
         """
         if self._terminal is None or not self._state.is_usable:
             msg = "no MetaTrader 5 session is established; call connect() first"
-            raise MT5NotConnectedError(msg)
+            raise BrokerNotConnectedError(msg, venue=VENUE)
         return self._terminal
 
     def connect(self) -> None:
@@ -427,10 +455,10 @@ class MT5Session:
             :class:`~atlas.broker.models.Connection` from the session's state.
 
         Raises:
-            MT5AuthenticationError: If the terminal rejected the credentials.
-            MT5ConnectionError: If the terminal could not be started or the
+            BrokerAuthenticationError: If the terminal rejected the credentials.
+            BrokerConnectionError: If the terminal could not be started or the
                 package is not installed.
-            MT5TimeoutError: If the terminal did not answer in time.
+            BrokerTimeoutError: If the terminal did not answer in time.
 
         Notes:
             Calling this on a connected session is not an error and does
@@ -499,37 +527,38 @@ class MT5Session:
             The terminal handle.
 
         Raises:
-            MT5ConnectionError: If the factory is not callable.
+            BrokerConnectionError: If the factory is not callable.
         """
         factory = self._terminal_factory
         if not callable(factory):
             msg = f"terminal factory {factory!r} is not callable"
-            raise MT5ConnectionError(msg)
+            raise BrokerConnectionError(msg, venue=VENUE)
         loaded: Terminal = factory()
         return loaded
 
-    def _error_from_terminal(self, terminal: Terminal, context: str) -> MT5Error:
-        """Build the temporary exception matching the terminal's last error.
+    def _error_from_terminal(self, terminal: Terminal, context: str) -> BrokerError:
+        """Build the exception matching the terminal's last error.
 
         Args:
             terminal: The terminal to interrogate.
             context: What Atlas was attempting, for the message.
 
         Returns:
-            The exception to raise. Returned rather than raised so that the call
-            site reads as ``raise self._error_from_terminal(...)`` and static
-            analysis can see the control flow ends there.
+            The exception to raise, carrying the terminal's own code. Returned
+            rather than raised so that the call site reads as ``raise
+            self._error_from_terminal(...)`` and static analysis can see the
+            control flow ends there.
         """
         code, description = terminal.last_error()
         message = f"{context}: MetaTrader 5 error {code} ({description})"
 
         for codes, exception_type in _ERROR_CODE_GROUPS:
             if code in codes:
-                return exception_type(message)
-        return MT5Error(message)
+                return exception_type(message, venue=VENUE, code=code)
+        return BrokerError(message, venue=VENUE, code=code)
 
-    def error_from_terminal(self, context: str) -> MT5Error:
-        """Build the temporary exception matching the connected terminal's last error.
+    def error_from_terminal(self, context: str) -> BrokerError:
+        """Build the exception matching the connected terminal's last error.
 
         Args:
             context: What Atlas was attempting, for the message.
@@ -538,6 +567,6 @@ class MT5Session:
             The exception to raise.
 
         Raises:
-            MT5NotConnectedError: If no session is established.
+            BrokerNotConnectedError: If no session is established.
         """
         return self._error_from_terminal(self.terminal(), context)

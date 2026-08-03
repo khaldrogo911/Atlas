@@ -22,8 +22,9 @@ Layout, in strict dependency order:
     vendor structures Atlas reads.
 
 :mod:`~atlas.broker.mt5.connection`
-    Configuration, the lazy vendor import, the session state machine and the
-    temporary exceptions ATLAS-TASK-0005 will replace.
+    Configuration, the lazy vendor import, the session state machine, and the
+    two tables that turn a MetaTrader 5 error code into an
+    :mod:`atlas.broker.exceptions` type.
 
 :mod:`~atlas.broker.mt5.adapter`
     The :class:`~atlas.broker.adapter.BrokerAdapter` implementation, which

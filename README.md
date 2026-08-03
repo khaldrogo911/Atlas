@@ -24,7 +24,7 @@ exist to keep them true as the codebase grows.
 
 ### Status
 
-Last completed: **ATLAS-TASK-0004 — MetaTrader 5 Broker Adapter**. See
+Last completed: **ATLAS-TASK-0005 — Broker Exception Hierarchy**. See
 [`docs/ROADMAP.md`](docs/ROADMAP.md) for the full task tracker.
 
 The engineering foundation is complete and enforced: dependency management,
@@ -33,12 +33,12 @@ configuration and CI.
 
 The broker boundary is built. `atlas.broker` holds the domain models
 (TASK-0002), the vendor-neutral `BrokerAdapter` port of 31 methods
-(TASK-0003), and its first real implementation against MetaTrader 5
-(TASK-0004), which is demo-account only and implements 24 of the 31 — the
-remaining seven raise `NotImplementedError` naming the MT5 capability or the
-later task they wait on. `MetaTrader5` is an optional Windows-marked extra
-imported inside one function, so nothing outside `atlas.broker.mt5` depends
-on it.
+(TASK-0003), its first real implementation against MetaTrader 5 (TASK-0004),
+which is demo-account only and implements 24 of the 31, and the `BrokerError`
+hierarchy every adapter translates its venue's failures into (TASK-0005). The
+remaining seven methods raise `NotImplementedError` naming the MT5 capability
+that is missing. `MetaTrader5` is an optional Windows-marked extra imported
+inside one function, so nothing outside `atlas.broker.mt5` depends on it.
 
 **No trading logic exists yet.** Every other package below is an importable
 unit with a documented responsibility and no implementation, by design.

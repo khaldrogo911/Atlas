@@ -11,6 +11,7 @@ broker lives behind it.
 | File | Holds |
 | --- | --- |
 | `adapter.py` | `BrokerAdapter` — 31 abstract methods, the whole contract |
+| `exceptions.py` | The `BrokerError` hierarchy every `Raises:` clause names |
 | `protocols.py` | Five capability protocols a consumer can depend on individually |
 | `types.py` | Identifier aliases, handler signatures, `OrderRequest`, `BrokerVersion`, `UNSET` |
 | `models/` | The domain models every method returns — see [`models/README.md`](models/README.md) |
@@ -55,8 +56,9 @@ convention:
    socket, no database. `test_adapter_contract.py` walks the AST of every
    module here and fails on anything outside a permitted set.
 3. **Errors are the port's own.** An implementation translates whatever the
-   venue raised into the `BrokerError` hierarchy documented in `adapter.py`.
-   Callers handle Atlas exceptions; a venue error code never reaches them.
+   venue raised into the `BrokerError` hierarchy in `exceptions.py`, which every
+   `Raises:` clause in `adapter.py` names. Callers handle Atlas exceptions; a
+   venue error code never reaches them.
 
 ## Why business logic depends only on `BrokerAdapter`
 

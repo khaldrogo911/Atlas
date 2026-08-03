@@ -31,6 +31,7 @@ ADAPTER_PATH = Path(inspect.getfile(adapter_module))
 PACKAGE_DIR = ADAPTER_PATH.parent
 PORT_SOURCES = (
     PACKAGE_DIR / "adapter.py",
+    PACKAGE_DIR / "exceptions.py",
     PACKAGE_DIR / "protocols.py",
     PACKAGE_DIR / "types.py",
 )
@@ -119,9 +120,11 @@ PINNED_SIGNATURES: Final[dict[str, str]] = {
     "version": "(self) -> 'BrokerVersion'",
 }
 
-# Referenced by the port's docstrings, delivered by a later task. The port must
-# not name an exception that is not in this plan.
-PLANNED_EXCEPTIONS: Final = frozenset(
+# Referenced by the port's docstrings and defined in `atlas.broker.exceptions`.
+# Transcribed rather than imported: the point is that the port's contract and
+# the module agree, and importing the module would make the test agree with
+# whatever the module happens to contain.
+DECLARED_EXCEPTIONS: Final = frozenset(
     {
         "BrokerError",
         "BrokerConnectionError",
@@ -369,27 +372,28 @@ class TestDocumentation:
         assert readme.read_text(encoding="utf-8").strip()
 
 
-class TestPlannedExceptionHierarchy:
+class TestDeclaredExceptionHierarchy:
     def test_the_exception_extractor_can_fire(self) -> None:
         # A scanner that matches nothing would pass every test below while
         # reading no contract at all.
         assert _EXCEPTION_NAME.findall(_docstring_of("connect"))
 
     @pytest.mark.parametrize("name", ALL_MANDATED)
-    def test_only_planned_exceptions_are_named(self, name: str) -> None:
+    def test_only_declared_exceptions_are_named(self, name: str) -> None:
         named = set(_EXCEPTION_NAME.findall(_docstring_of(name)))
-        unplanned = named - PLANNED_EXCEPTIONS - PERMITTED_BUILTIN_EXCEPTIONS
+        undeclared = named - DECLARED_EXCEPTIONS - PERMITTED_BUILTIN_EXCEPTIONS
 
-        assert not unplanned, f"{name} documents unplanned exceptions: {sorted(unplanned)}"
+        assert not undeclared, f"{name} documents undeclared exceptions: {sorted(undeclared)}"
 
-    @pytest.mark.parametrize("planned", sorted(PLANNED_EXCEPTIONS))
-    def test_the_hierarchy_is_written_down(self, planned: str) -> None:
+    @pytest.mark.parametrize("declared", sorted(DECLARED_EXCEPTIONS))
+    def test_the_hierarchy_is_written_down(self, declared: str) -> None:
         assert adapter_module.__doc__ is not None
-        assert planned in adapter_module.__doc__
+        assert declared in adapter_module.__doc__
 
     def test_the_port_implements_no_exception_class(self) -> None:
-        # The hierarchy is referenced, not defined: it belongs to a later task,
-        # and an exception defined here would be one the port could not raise.
+        # The hierarchy is referenced, not defined: it lives in exceptions.py,
+        # so that a caller can import it without importing the port, and so
+        # that the port's own module stays free of anything but the contract.
         tree = ast.parse(ADAPTER_PATH.read_text(encoding="utf-8"))
         classes = [node.name for node in ast.walk(tree) if isinstance(node, ast.ClassDef)]
 

@@ -16,7 +16,7 @@ and in package documentation. This file is where they resolve to a status.
 | ATLAS-TASK-0002 | Broker domain models | ✅ Complete | `0498866` |
 | ATLAS-TASK-0003 | The `BrokerAdapter` port | ✅ Complete | `4c7a9d7` |
 | ATLAS-TASK-0004 | MetaTrader 5 broker adapter (demo foundation) | ✅ Complete | `36fa3e3` |
-| ATLAS-TASK-0005 | Broker exception hierarchy | ⬜ Not started | — |
+| ATLAS-TASK-0005 | Broker exception hierarchy | ✅ Complete | `PENDING` |
 | ATLAS-TASK-0006 | `MockBrokerAdapter` | ⬜ Not started | — |
 | ATLAS-TASK-0007 | `BaseBrokerAdapter` | ⬜ Not started | — |
 
@@ -57,25 +57,42 @@ port was not changed: the task exists to validate the contract against a live
 venue, not to reshape it around one.
 
 24 of 31 methods are implemented. Seven raise `NotImplementedError` with the
-missing MT5 capability named at the call site — the four trading methods (they
-need the 0005 hierarchy to distinguish rejection from insufficient margin from
-timeout), `subscribe_ticks` and `subscribe_candles` (the MT5 Python API polls
-and opens no push channel), and `server_time` (the terminal exposes no clock).
+missing MT5 capability named at the call site — the four trading methods, plus
+`subscribe_ticks` and `subscribe_candles` (the MT5 Python API polls and opens
+no push channel) and `server_time` (the terminal exposes no clock).
 
 `MetaTrader5` is imported inside exactly one function, behind a typed protocol,
 never at module scope, and is an optional Windows-marked extra — so the
 distribution installs and the whole suite runs on a Linux runner with no wheel
 and no terminal.
 
-## Next
-
 ### ATLAS-TASK-0005 — broker exception hierarchy
 
-**Blocked nothing; blocks the four MT5 trading methods.** Delivers the
-`BrokerError` tree the port's docstrings already reference. Replaces every
-temporary exception in `atlas/broker/mt5/connection.py`, each of which carries
-a `TODO(ATLAS-TASK-0005)` naming its permanent replacement, and unblocks the
-`TRADE_RETCODE_*` table that `constants.py` deliberately does not yet define.
+`atlas/broker/exceptions.py`: the thirteen-class `BrokerError` tree that every
+`Raises:` clause in the port already named. Plain `Exception` subclasses, no
+pydantic, no third-party dependency, detail carried as attributes rather than
+inside the message, and constructors that only assign — these are built while a
+venue is unreachable, so one that can itself fail is a liability.
+
+Two placements are load-bearing and are asserted rather than only written down.
+`BrokerAuthenticationError` sits outside `BrokerConnectionError`, so a
+supervision loop retrying connection faults cannot swallow a credential that
+will never work. `BrokerTimeoutError` sits inside it but means the request may
+have been *executed*, which is why every state-changing method documents
+reconciliation rather than retry.
+
+On the MetaTrader 5 side the eight temporary `MT5*Error` classes are gone,
+`constants.py` gained the 40 deferred `TRADE_RETCODE_*` values, and
+`error_from_retcode` maps a trade server's verdict to the hierarchy. The two
+integer spaces stay separate: `RES_E_*` says whether the terminal could be
+spoken to at all, a retcode says what a server did with a request it received,
+and each has its own total classifier with its own fallback.
+
+No trading behaviour was added. The four trading methods still refuse, now
+naming what is actually missing — filling mode per instrument, a deviation
+policy, and a read-back of the resulting deals — rather than the hierarchy.
+
+## Next
 
 ### ATLAS-TASK-0006 — `MockBrokerAdapter`
 

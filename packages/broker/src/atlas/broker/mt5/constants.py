@@ -40,6 +40,7 @@ __all__ = [
     "MT5_ORDER_STATE_TO_STATUS",
     "MT5_ORDER_TYPE_TO_DOMAIN",
     "MT5_POSITION_TYPE_TO_SIDE",
+    "MT5_RETCODE_DESCRIPTIONS",
     "MT5_TO_TIMEFRAME",
     "MT5_TRADE_MODE_TO_DOMAIN",
     "NOT_FOUND_ERROR_CODES",
@@ -79,6 +80,12 @@ __all__ = [
     "RES_E_NO_MEMORY",
     "RES_E_UNSUPPORTED",
     "RES_S_OK",
+    "RETCODE_AUTHENTICATION_CODES",
+    "RETCODE_CONNECTION_CODES",
+    "RETCODE_INSUFFICIENT_MARGIN_CODES",
+    "RETCODE_POSITION_NOT_FOUND_CODES",
+    "RETCODE_SUCCESS_CODES",
+    "RETCODE_TIMEOUT_CODES",
     "SYMBOL_TRADE_MODE_CLOSEONLY",
     "SYMBOL_TRADE_MODE_DISABLED",
     "SYMBOL_TRADE_MODE_FULL",
@@ -94,6 +101,46 @@ __all__ = [
     "TIMEFRAME_M30",
     "TIMEFRAME_TO_MT5",
     "TIMEOUT_ERROR_CODES",
+    "TRADE_RETCODE_CANCEL",
+    "TRADE_RETCODE_CLIENT_DISABLES_AT",
+    "TRADE_RETCODE_CLOSE_ONLY",
+    "TRADE_RETCODE_CLOSE_ORDER_EXIST",
+    "TRADE_RETCODE_CONNECTION",
+    "TRADE_RETCODE_DONE",
+    "TRADE_RETCODE_DONE_PARTIAL",
+    "TRADE_RETCODE_ERROR",
+    "TRADE_RETCODE_FIFO_CLOSE",
+    "TRADE_RETCODE_FROZEN",
+    "TRADE_RETCODE_INVALID",
+    "TRADE_RETCODE_INVALID_CLOSE_VOLUME",
+    "TRADE_RETCODE_INVALID_EXPIRATION",
+    "TRADE_RETCODE_INVALID_FILL",
+    "TRADE_RETCODE_INVALID_ORDER",
+    "TRADE_RETCODE_INVALID_PRICE",
+    "TRADE_RETCODE_INVALID_STOPS",
+    "TRADE_RETCODE_INVALID_VOLUME",
+    "TRADE_RETCODE_LIMIT_ORDERS",
+    "TRADE_RETCODE_LIMIT_POSITIONS",
+    "TRADE_RETCODE_LIMIT_VOLUME",
+    "TRADE_RETCODE_LOCKED",
+    "TRADE_RETCODE_LONG_ONLY",
+    "TRADE_RETCODE_MARKET_CLOSED",
+    "TRADE_RETCODE_NO_CHANGES",
+    "TRADE_RETCODE_NO_MONEY",
+    "TRADE_RETCODE_ONLY_REAL",
+    "TRADE_RETCODE_ORDER_CHANGED",
+    "TRADE_RETCODE_PLACED",
+    "TRADE_RETCODE_POSITION_CLOSED",
+    "TRADE_RETCODE_PRICE_CHANGED",
+    "TRADE_RETCODE_PRICE_OFF",
+    "TRADE_RETCODE_REJECT",
+    "TRADE_RETCODE_REJECT_CANCEL",
+    "TRADE_RETCODE_REQUOTE",
+    "TRADE_RETCODE_SERVER_DISABLES_AT",
+    "TRADE_RETCODE_SHORT_ONLY",
+    "TRADE_RETCODE_TIMEOUT",
+    "TRADE_RETCODE_TOO_MANY_REQUESTS",
+    "TRADE_RETCODE_TRADE_DISABLED",
 ]
 
 # --- Timeframes ---------------------------------------------------------------
@@ -226,9 +273,9 @@ MT5_TRADE_MODE_TO_DOMAIN: Final[Mapping[int, SymbolTradeMode]] = {
 #
 # Returned by ``MetaTrader5.last_error()`` as ``(code, description)``. These
 # describe the terminal's own IPC layer, not a trade server's verdict on an
-# order — that is a separate ``TRADE_RETCODE_*`` space which arrives on an
-# order result and belongs with the trading methods that ATLAS-TASK-0005 will
-# complete.
+# order — that is the separate ``TRADE_RETCODE_*`` space further down, which
+# arrives on an order result. The two spaces are disjoint in value and unrelated
+# in meaning, and are never consulted by the same table.
 
 RES_S_OK: Final = 1
 RES_E_FAIL: Final = -1
@@ -269,3 +316,136 @@ TIMEOUT_ERROR_CODES: Final = frozenset({RES_E_INTERNAL_FAIL_TIMEOUT})
 
 #: The request was well formed but the terminal holds nothing matching it.
 NOT_FOUND_ERROR_CODES: Final = frozenset({RES_E_NOT_FOUND})
+
+# --- Trade server result codes ------------------------------------------------
+#
+# The ``retcode`` field of an order result. This is the trade *server's* verdict
+# on an order, which is a different thing from the terminal result codes above:
+# a request can reach the server perfectly and still be refused, and a request
+# that never reaches the server has no retcode at all.
+#
+# The numbering has one gap — 10037 is not defined by the vendor — so the codes
+# are written out individually rather than generated from a range.
+
+TRADE_RETCODE_REQUOTE: Final = 10004
+TRADE_RETCODE_REJECT: Final = 10006
+TRADE_RETCODE_CANCEL: Final = 10007
+TRADE_RETCODE_PLACED: Final = 10008
+TRADE_RETCODE_DONE: Final = 10009
+TRADE_RETCODE_DONE_PARTIAL: Final = 10010
+TRADE_RETCODE_ERROR: Final = 10011
+TRADE_RETCODE_TIMEOUT: Final = 10012
+TRADE_RETCODE_INVALID: Final = 10013
+TRADE_RETCODE_INVALID_VOLUME: Final = 10014
+TRADE_RETCODE_INVALID_PRICE: Final = 10015
+TRADE_RETCODE_INVALID_STOPS: Final = 10016
+TRADE_RETCODE_TRADE_DISABLED: Final = 10017
+TRADE_RETCODE_MARKET_CLOSED: Final = 10018
+TRADE_RETCODE_NO_MONEY: Final = 10019
+TRADE_RETCODE_PRICE_CHANGED: Final = 10020
+TRADE_RETCODE_PRICE_OFF: Final = 10021
+TRADE_RETCODE_INVALID_EXPIRATION: Final = 10022
+TRADE_RETCODE_ORDER_CHANGED: Final = 10023
+TRADE_RETCODE_TOO_MANY_REQUESTS: Final = 10024
+TRADE_RETCODE_NO_CHANGES: Final = 10025
+TRADE_RETCODE_SERVER_DISABLES_AT: Final = 10026
+TRADE_RETCODE_CLIENT_DISABLES_AT: Final = 10027
+TRADE_RETCODE_LOCKED: Final = 10028
+TRADE_RETCODE_FROZEN: Final = 10029
+TRADE_RETCODE_INVALID_FILL: Final = 10030
+TRADE_RETCODE_CONNECTION: Final = 10031
+TRADE_RETCODE_ONLY_REAL: Final = 10032
+TRADE_RETCODE_LIMIT_ORDERS: Final = 10033
+TRADE_RETCODE_LIMIT_VOLUME: Final = 10034
+TRADE_RETCODE_INVALID_ORDER: Final = 10035
+TRADE_RETCODE_POSITION_CLOSED: Final = 10036
+TRADE_RETCODE_INVALID_CLOSE_VOLUME: Final = 10038
+TRADE_RETCODE_CLOSE_ORDER_EXIST: Final = 10039
+TRADE_RETCODE_LIMIT_POSITIONS: Final = 10040
+TRADE_RETCODE_REJECT_CANCEL: Final = 10041
+TRADE_RETCODE_LONG_ONLY: Final = 10042
+TRADE_RETCODE_SHORT_ONLY: Final = 10043
+TRADE_RETCODE_CLOSE_ONLY: Final = 10044
+TRADE_RETCODE_FIFO_CLOSE: Final = 10045
+
+#: What each retcode means, for the exception message. MetaTrader 5 returns a
+#: description alongside a terminal error code but not alongside a retcode, so
+#: unlike every other table here this one has no vendor source to be checked
+#: against — it is transcribed from the documented meanings. Wording only: no
+#: decision is taken from it.
+MT5_RETCODE_DESCRIPTIONS: Final[Mapping[int, str]] = {
+    TRADE_RETCODE_REQUOTE: "requote",
+    TRADE_RETCODE_REJECT: "request rejected",
+    TRADE_RETCODE_CANCEL: "request cancelled by the trader",
+    TRADE_RETCODE_PLACED: "order placed",
+    TRADE_RETCODE_DONE: "request completed",
+    TRADE_RETCODE_DONE_PARTIAL: "request only partially completed",
+    TRADE_RETCODE_ERROR: "request processing error",
+    TRADE_RETCODE_TIMEOUT: "request cancelled by timeout",
+    TRADE_RETCODE_INVALID: "invalid request",
+    TRADE_RETCODE_INVALID_VOLUME: "invalid volume",
+    TRADE_RETCODE_INVALID_PRICE: "invalid price",
+    TRADE_RETCODE_INVALID_STOPS: "invalid stops",
+    TRADE_RETCODE_TRADE_DISABLED: "trading is disabled",
+    TRADE_RETCODE_MARKET_CLOSED: "market is closed",
+    TRADE_RETCODE_NO_MONEY: "not enough money to complete the request",
+    TRADE_RETCODE_PRICE_CHANGED: "prices changed",
+    TRADE_RETCODE_PRICE_OFF: "no quotes to process the request",
+    TRADE_RETCODE_INVALID_EXPIRATION: "invalid order expiration",
+    TRADE_RETCODE_ORDER_CHANGED: "order state changed",
+    TRADE_RETCODE_TOO_MANY_REQUESTS: "too many requests",
+    TRADE_RETCODE_NO_CHANGES: "no changes in the request",
+    TRADE_RETCODE_SERVER_DISABLES_AT: "algorithmic trading disabled by the server",
+    TRADE_RETCODE_CLIENT_DISABLES_AT: "algorithmic trading disabled by the terminal",
+    TRADE_RETCODE_LOCKED: "request locked for processing",
+    TRADE_RETCODE_FROZEN: "order or position frozen",
+    TRADE_RETCODE_INVALID_FILL: "invalid order filling type",
+    TRADE_RETCODE_CONNECTION: "no connection with the trade server",
+    TRADE_RETCODE_ONLY_REAL: "operation allowed only for live accounts",
+    TRADE_RETCODE_LIMIT_ORDERS: "the pending order limit has been reached",
+    TRADE_RETCODE_LIMIT_VOLUME: "the volume limit for the symbol has been reached",
+    TRADE_RETCODE_INVALID_ORDER: "incorrect or prohibited order type",
+    TRADE_RETCODE_POSITION_CLOSED: "the position is already closed",
+    TRADE_RETCODE_INVALID_CLOSE_VOLUME: "close volume exceeds the position volume",
+    TRADE_RETCODE_CLOSE_ORDER_EXIST: "a close order already exists for the position",
+    TRADE_RETCODE_LIMIT_POSITIONS: "the open position limit has been reached",
+    TRADE_RETCODE_REJECT_CANCEL: "pending order activation rejected, order cancelled",
+    TRADE_RETCODE_LONG_ONLY: "the symbol allows long positions only",
+    TRADE_RETCODE_SHORT_ONLY: "the symbol allows short positions only",
+    TRADE_RETCODE_CLOSE_ONLY: "the symbol allows position closing only",
+    TRADE_RETCODE_FIFO_CLOSE: "the symbol requires closing by the FIFO rule",
+}
+
+#: The server accepted the request. Not failures, and the only retcodes that are
+#: not translated into an exception.
+#:
+#: ``DONE_PARTIAL`` is here deliberately. A partial fill is a real order with a
+#: real position behind it; raising on it would discard the fill that actually
+#: happened and leave the caller believing nothing was executed.
+RETCODE_SUCCESS_CODES: Final = frozenset(
+    {TRADE_RETCODE_PLACED, TRADE_RETCODE_DONE, TRADE_RETCODE_DONE_PARTIAL}
+)
+
+#: The server did not answer in time. The order may still have been executed.
+RETCODE_TIMEOUT_CODES: Final = frozenset({TRADE_RETCODE_TIMEOUT})
+
+#: The terminal reached no trade server at all.
+RETCODE_CONNECTION_CODES: Final = frozenset({TRADE_RETCODE_CONNECTION})
+
+#: Algorithmic trading is switched off, at the server or in the terminal. Same
+#: reasoning as ``RES_E_AUTO_TRADING_DISABLED`` above: a human has to turn it
+#: on, so it is a permission fault and not a transient one.
+RETCODE_AUTHENTICATION_CODES: Final = frozenset(
+    {TRADE_RETCODE_SERVER_DISABLES_AT, TRADE_RETCODE_CLIENT_DISABLES_AT}
+)
+
+#: The account cannot fund the order. The one refusal a sizing layer can answer.
+RETCODE_INSUFFICIENT_MARGIN_CODES: Final = frozenset({TRADE_RETCODE_NO_MONEY})
+
+#: The position named in the request no longer exists.
+#:
+#: There is no corresponding order group: MetaTrader 5 has no retcode meaning
+#: "no such order". An adapter learns that from an empty ``orders_get`` lookup,
+#: not from a rejection, so inventing a retcode for it here would be a mapping
+#: the vendor does not support.
+RETCODE_POSITION_NOT_FOUND_CODES: Final = frozenset({TRADE_RETCODE_POSITION_CLOSED})
