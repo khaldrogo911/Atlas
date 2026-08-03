@@ -135,7 +135,7 @@ adapters can implement, added deliberately, or a capability protocol — not a
 venue-shaped parameter.
 
 Shared machinery that most adapters want — reconnect loops, retry policy,
-connection-state bookkeeping — belongs in `BaseBrokerAdapter` (ATLAS-TASK-0004),
+connection-state bookkeeping — belongs in `BaseBrokerAdapter` (ATLAS-TASK-0007),
 a concrete class *between* the port and an implementation. It is not in the port
 because a replay engine has nothing to reconnect to and should not inherit the
 concept.
@@ -193,6 +193,6 @@ decision for its own ADR rather than a detail of this one.
 ## Testing against the port
 
 Do not mock `BrokerAdapter`. A mock agrees with whatever the test asserts,
-including the wrong thing. Use the mock adapter (ATLAS-TASK-0007), which is a
+including the wrong thing. Use the mock adapter (ATLAS-TASK-0006), which is a
 real implementation of the same interface and is bound by the same contract
 tests as every other adapter.

@@ -1,0 +1,243 @@
+# `atlas.broker.mt5` — MetaTrader 5 adapter
+
+## Purpose
+
+Validate the `BrokerAdapter` port against a real broker, without changing the
+port.
+
+A contract written in the abstract is a guess. This package is the first
+implementation behind `atlas.broker.adapter.BrokerAdapter`, and its job is to
+find out which parts of that contract a real venue can honour, which parts it
+honours only with a correction applied, and which parts it cannot honour at all.
+Every gap found is recorded below rather than papered over, because a gap that
+is hidden by a plausible return value is a gap that gets discovered in
+production.
+
+The port was not modified to accommodate MetaTrader 5. Where the two disagree,
+the disagreement is documented at the method and appears in **Current
+limitations**.
+
+**Demo accounts only at this stage.** The four trading methods do not send
+anything to a venue.
+
+## Architecture
+
+Four modules in strict dependency order. Nothing points backwards, so there are
+no cycles by construction rather than by convention.
+
+```
+constants.py   wire values, translation tables      → imports atlas.broker.models only
+     ↓
+mapper.py      pure translation into domain models  → constants + models
+     ↓
+connection.py  config, vendor import, session       → constants + mapper
+     ↓
+adapter.py     the BrokerAdapter implementation     → all of the above
+```
+
+| Module | Holds | Deliberately does not hold |
+| --- | --- | --- |
+| `constants.py` | Every MetaTrader 5 integer Atlas depends on, and the tables built from them | Any logic |
+| `mapper.py` | Pure functions from vendor structures to domain models, and the `Protocol`s describing those structures | Terminal calls, clock reads, global state |
+| `connection.py` | `MT5Config`, the lazy `import MetaTrader5`, the `Terminal` protocol, the session state machine, the temporary exceptions | Domain models |
+| `adapter.py` | Which terminal call answers which port method | Translation tables, field arithmetic, connection state |
+
+The split between `adapter.py` and `mapper.py` is the load-bearing one. It means
+the translation can be tested against hand-built structures with no session
+present, and it means a reader auditing "what does Atlas do with the `sl` field"
+has exactly one place to look. The task brief requires no mapping logic in
+`adapter.py`; the arrangement above is what makes that requirement checkable
+rather than aspirational.
+
+## Dependency boundaries
+
+**Inward.** `MetaTrader5` is imported in exactly one place: the body of
+`load_terminal()` in `connection.py`. Not at module scope, and not anywhere
+else.
+
+That is a hard requirement, not a stylistic preference. `tests/contract/
+test_repository_structure.py` imports every package under the `atlas` namespace,
+including this one, and CI runs on Linux where the MetaTrader5 wheel does not
+exist — the vendor publishes Windows wheels only. A module-level import would
+fail the build of a package that is merely present in the tree.
+
+The dependency is declared as an optional extra with a platform marker:
+
+```toml
+[project.optional-dependencies]
+mt5 = ['MetaTrader5>=5.0.45,<6.0; sys_platform == "win32"']
+```
+
+so `poetry install` works everywhere and `poetry install --extras mt5` adds the
+SDK where it can exist.
+
+**Outward.** No MetaTrader 5 value leaves this package. Callers receive
+`atlas.broker.models` types or an exception. No named tuple, no NumPy record, no
+dict, no `Any`.
+
+The vendor surface is untyped — the wheel ships no `py.typed` — so rather than
+letting `Any` spread inward, every structure Atlas reads is described by a
+`Protocol` that names exactly the fields used: `MT5AccountInfo`, `MT5SymbolInfo`,
+`MT5Tick`, `MT5RateRow`, `MT5Position`, `MT5Order`, `MT5Deal` in `mapper.py`, and
+`Terminal` and `MT5TerminalInfo` in `connection.py`. Those protocols are the
+complete written statement of Atlas's dependency on MetaTrader 5. A function or
+field absent from them is one Atlas does not use, and a vendor rename breaks a
+declared contract instead of failing at an attribute lookup three layers away.
+
+The `ignore_missing_imports` exemption in `mypy.ini` is scoped to the
+`MetaTrader5` module alone for the same reason.
+
+`atlas.broker.__init__` does not export anything from this package. Composition
+imports `atlas.broker.mt5` explicitly; business logic imports `atlas.broker` and
+never learns which venue is behind it.
+
+## Mapping philosophy
+
+Translate faithfully, correct only what is provably distorted, and never invent
+a value.
+
+Four corrections are applied, and each one prevents a specific silent failure.
+
+**Server time is not UTC.** A MetaTrader 5 timestamp is the trade server's wall
+clock encoded as a Unix epoch. On a UTC+3 server — the default for a large share
+of retail brokers — the epoch reported for a bar that opened at 12:00 server time
+is the epoch of 12:00 UTC, three hours after the instant the bar actually opened.
+Read naively, every bar and every tick is silently wrong by the server's offset.
+`ServerClock` is the one place that correction happens. Nothing in the terminal
+API reports the offset, so it is configured on `MT5Config.server_utc_offset` and
+defaults to zero — correct only for a server that publishes UTC. A wrong non-zero
+guess would be worse than an explicit "not configured".
+
+**Zero means absent.** MetaTrader 5 has no null. An unset stop loss, take profit
+or last-trade price arrives as `0.0`, which the domain models would accept as a
+real price of zero. `_optional_price` maps it back to `None`. The same convention
+bites harder on the account: a flat account reports `margin_level` as `0.0` where
+the ratio is in fact undefined, and passed through it reads as the most severe
+margin call representable and fires every `margin_level < threshold` rule in the
+system. It is mapped to `None`.
+
+**Decimal by way of `str`.** `Decimal(0.1)` is the binary expansion of a float and
+carries fifty digits of noise; `Decimal(str(0.1))` is `Decimal("0.1")`. Every
+number crossing this boundary takes the second route.
+
+**Stop-limit prices are inverted.** MetaTrader 5 puts the *trigger* in
+`price_open` and the *limit* in `price_stoplimit`. Atlas puts the limit in `price`
+and the trigger in `stop_price`. Getting this backwards produces an order that
+validates, transmits, and triggers at the wrong price. `_working_prices` is the
+one place it is handled, and only for `STOP_LIMIT`.
+
+Two further rules:
+
+- **Tables are declared once and inverted programmatically.** A hand-written
+  reverse table is a second source of truth that drifts.
+- **An unmappable value raises.** An unknown order type, order state, position
+  type or symbol trade mode fails loudly and names the ticket. `ORDER_TYPE_CLOSE_BY`
+  is the expected case: it is a netting instruction with no direction, and
+  guessing a side for it would be worse than refusing.
+
+## Current limitations
+
+Seven of the port's thirty-one methods raise `NotImplementedError`. None is a
+placeholder that could have been filled with a plausible value.
+
+### Trading — deferred to ATLAS-TASK-0005
+
+`place_order`, `modify_order`, `cancel_order`, `close_position`.
+
+The terminal capability exists (`order_send`). What does not exist is the broker
+exception hierarchy. The port requires these four methods to distinguish
+`BrokerOrderRejectedError` from `BrokerInsufficientMarginError` from
+`BrokerTimeoutError`; every other method's failure modes are expressible with the
+temporary exceptions in `connection.py`, and these are not. Sending an order and
+collapsing the whole `TRADE_RETCODE_*` space into one temporary exception would
+destroy exactly the information a caller needs in order to decide whether to
+retry, resize or stop.
+
+`constants.py` therefore defines the terminal's `RES_E_*` IPC result codes and
+deliberately does not yet define `TRADE_RETCODE_*`.
+
+### Streaming — no push channel exists
+
+`subscribe_ticks`, `subscribe_candles`.
+
+The MetaTrader 5 Python API polls. It registers no callbacks and opens no push
+channel of any kind. A subscription can only be built by Atlas running its own
+polling loop, which means owning a scheduler, a change-detection rule and a
+backpressure policy — a design decision in its own right, not something to
+smuggle in as a side effect of a mapping task.
+
+If polling is later rejected as a design, the correct permanent answer becomes
+`BrokerUnsupportedOperationError`, which the port already anticipates for a venue
+that cannot stream.
+
+`unsubscribe_ticks` and `unsubscribe_candles` are **implemented as no-ops**, and
+that is the contract rather than a stub: the port requires them to succeed
+silently for a handle that is unknown or already cancelled, and since no handle
+is ever issued, every handle is unknown. Raising would break a cleanup path for
+no benefit.
+
+### `server_time` — the terminal exposes no clock
+
+There is no server-time call in the MetaTrader 5 Python API. The nearest thing is
+the timestamp on the last quote of some instrument, which is the time of the last
+trade-server *event* rather than the current time — over a weekend it is Friday's
+close — and it would require naming an instrument that the port's signature has
+no parameter for. Returning it would look like a clock and behave like a stale
+one.
+
+This is the one place the task brief and the no-fabrication rule conflict:
+`server_time()` appears in the brief's list of methods to implement, and it cannot
+be implemented truthfully. The no-fabrication rule wins.
+
+### Gaps in methods that *are* implemented
+
+- **`can_trade` does not establish that the market is open.** It reports venue
+  permission: instrument not disabled, account allowed to trade. The terminal
+  publishes session schedules through a symbol-info call this adapter does not
+  make, so an instrument enabled outside its trading hours answers `True` here and
+  rejects the order.
+- **`latency` measures the terminal's link to the trade server, not the local IPC
+  hop.** It reads `terminal_info().ping_last`, refreshed by the call. Measuring
+  the IPC hop instead would produce a reassuring fraction of a millisecond that
+  says nothing about whether an order reaches the venue in time.
+- **`get_positions` costs one extra call per position.** The domain requires a
+  position's commission and MetaTrader 5 does not report one — commission is
+  charged against the *deals* that opened the position. It is read back per
+  position from deal history. If the terminal returns no deals for a position, the
+  call raises rather than reporting zero, because zero in an accounting field is a
+  fabricated number.
+- **`get_symbols` fails whole rather than skipping an instrument it cannot map.**
+  Skipping would mean Atlas reports that a venue does not offer an instrument it
+  does offer, with no way for the caller to find out otherwise.
+- **`get_ticks` is a loop.** The terminal offers no batch quote call, so the
+  quotes are microseconds apart rather than simultaneous. That is as close to one
+  snapshot as MetaTrader 5 allows.
+- **Not thread safe.** The port requires adapters to be callable from several
+  threads. That locking belongs in `BaseBrokerAdapter` (ATLAS-TASK-0007), written
+  once for every adapter rather than repeated in each.
+- **Bar close times are nominal.** MetaTrader 5 reports only a bar's open time.
+  The close is derived by adding the timeframe's nominal duration, so a daily bar
+  spanning a daylight-saving transition closes an hour away from the derived
+  value. The domain model requires the field, so leaving it unset is not
+  available.
+
+### Temporary exceptions
+
+`connection.py` defines a private hierarchy — `MT5Error`, `MT5ConnectionError`,
+`MT5NotConnectedError`, `MT5TimeoutError`, `MT5AuthenticationError`,
+`MT5RequestError`, `MT5SymbolNotFoundError`, `MT5DataUnavailableError` — so that
+failures are typed and distinguishable rather than bare `RuntimeError`s. Each
+class carries a `TODO(ATLAS-TASK-0005)` naming the `BrokerError` subclass that
+replaces it. The replacement is expected to be a rename plus a change of base
+class: no call site should have to move.
+
+## Future work
+
+| Task | What it changes here |
+| --- | --- |
+| **ATLAS-TASK-0005** — broker exception hierarchy | Replaces every temporary exception in `connection.py`; unblocks the four trading methods and the `TRADE_RETCODE_*` table in `constants.py` |
+| **ATLAS-TASK-0006** — `MockBrokerAdapter` | Gives the port a second implementation, which is what proves the contract is not shaped around MetaTrader 5 |
+| **ATLAS-TASK-0007** — `BaseBrokerAdapter` | Takes over thread safety, and any retry or reconnection policy, from every adapter including this one |
+| *(unscheduled)* — streaming | A polling loop behind `subscribe_ticks` and `subscribe_candles`, or a decision that this venue does not stream |
+| *(unscheduled)* — session schedules | Reading trading hours so `can_trade` can answer about the market rather than only about permission |
+| *(unscheduled)* — server clock offset discovery | Currently configured. Recovering it by comparing a fresh tick's timestamp against the host clock during an active session is possible but needs care around weekends and stale quotes |

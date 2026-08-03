@@ -28,6 +28,15 @@ dependencies = [
     "duckdb>=1.1,<2.0",
 ]
 
+# Venue SDKs are optional extras, never core dependencies. `atlas.broker.mt5`
+# imports the MetaTrader5 package lazily, so the whole distribution installs and
+# every test runs on a machine — or a CI runner — that has no terminal and no
+# wheel available for its platform. The marker is not defensive: MetaTrader5
+# publishes Windows wheels only, so an unconditional dependency would make the
+# project uninstallable on the Linux runners that execute CI.
+[project.optional-dependencies]
+mt5 = ['MetaTrader5>=5.0.45,<6.0; sys_platform == "win32"']
+
 [project.urls]
 Documentation = "https://github.com/project-atlas/atlas/tree/main/docs"
 Repository = "https://github.com/project-atlas/atlas"

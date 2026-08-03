@@ -79,7 +79,11 @@ runtime-evaluated-base-classes = [
 ]
 
 [lint.isort]
-known-first-party = ["atlas"]
+# `tests` is named explicitly because src-based detection cannot find it: the
+# test tree is rooted at the repository root, which is not a source root, so
+# ruff would otherwise sort a shared test helper as a third-party package and
+# group it with pytest.
+known-first-party = ["atlas", "tests"]
 required-imports = ["from __future__ import annotations"]
 
 [lint.pylint]

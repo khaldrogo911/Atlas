@@ -10,7 +10,7 @@ Scope
 This module is a contract and nothing else. It contains no connection handling,
 no retry policy, no caching, no reconnection, no networking and no trading
 logic. Shared behaviour that every adapter would otherwise repeat belongs in
-``BaseBrokerAdapter`` (ATLAS-TASK-0004); venue specifics belong in the concrete
+``BaseBrokerAdapter`` (ATLAS-TASK-0007); venue specifics belong in the concrete
 adapters below it.
 
 Synchronous by policy
