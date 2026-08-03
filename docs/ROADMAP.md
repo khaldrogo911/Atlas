@@ -16,7 +16,7 @@ and in package documentation. This file is where they resolve to a status.
 | ATLAS-TASK-0002 | Broker domain models | ✅ Complete | `0498866` |
 | ATLAS-TASK-0003 | The `BrokerAdapter` port | ✅ Complete | `4c7a9d7` |
 | ATLAS-TASK-0004 | MetaTrader 5 broker adapter (demo foundation) | ✅ Complete | `36fa3e3` |
-| ATLAS-TASK-0005 | Broker exception hierarchy | ✅ Complete | `PENDING` |
+| ATLAS-TASK-0005 | Broker exception hierarchy | ✅ Complete | `a07dcea` |
 | ATLAS-TASK-0006 | `MockBrokerAdapter` | ⬜ Not started | — |
 | ATLAS-TASK-0007 | `BaseBrokerAdapter` | ⬜ Not started | — |
 
