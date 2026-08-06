@@ -44,6 +44,19 @@ TOKYO: Final = timezone(timedelta(hours=9))
 THREADS: Final = 8
 ADVANCES: Final = 50
 
+#: How many times a race is run before a conclusion is drawn from it. A race is
+#: sampled rather than decided, and the switch interval below raises the odds of
+#: an interleave without making one certain: measured over three hundred rounds
+#: on CPython 3.12, one round finds a torn read 88% of the time and loses an
+#: unguarded update 99% of the time. Asking once and demanding success is
+#: therefore a test that fails about one run in nine, which is what it did. The
+#: rounds are independent, so thirty-two of them hold even on a host where a
+#: single round would succeed only half the time. The probes stop at the first
+#: success, so the usual cost is one round; the guarded assertions run all
+#: thirty-two, which is thirty-two chances to catch a tear that must never
+#: appear rather than one.
+RACE_ROUNDS: Final = 32
+
 #: One second, the unit every advance in this module is measured in. An integer
 #: number of seconds so that a total is exact in floating point and the
 #: assertions can use ``==`` rather than a tolerance.
@@ -553,31 +566,44 @@ class TestTheManualClockUnderThreads:
     of test ATLAS-TASK-0008 went looking for and found: green because nothing
     was exercised.
 
-    So two things are done about it. The ``contended`` fixture shortens the
-    switch interval, which makes the interleaving reliable rather than lucky
-    without anything sleeping or any result depending on elapsed time. And
+    So three things are done about it. The ``contended`` fixture shortens the
+    switch interval, which makes the interleaving common rather than rare
+    without anything sleeping or any result depending on elapsed time.
     :class:`_Unguarded` — the same two writes with the lock left out — is run
     through the identical workload, so the power of each assertion is *asserted*
-    rather than assumed.
+    rather than assumed. And every race here is run ``RACE_ROUNDS`` times,
+    because common is not the same as certain: a shortened switch interval
+    raises the odds of an interleave, and a probe that asks once is a test that
+    fails whenever the odds do not land.
+
+    The repetition applies to the guarded assertions too, and not only for
+    symmetry. If a tear takes several rounds to provoke, then one clean round
+    against the real clock is evidence that a tear is rare, which is not the
+    claim; the same rounds on both sides are what make it evidence about the
+    lock.
     """
 
     def test_concurrent_advances_are_all_credited(self) -> None:
-        clock = ManualClock(START)
+        for _ in range(RACE_ROUNDS):
+            clock = ManualClock(START)
 
-        _advance_from_many_threads(clock)
+            _advance_from_many_threads(clock)
 
-        assert clock.monotonic() == float(THREADS * ADVANCES)
-        assert clock.now() == START + timedelta(seconds=THREADS * ADVANCES)
+            assert clock.monotonic() == float(THREADS * ADVANCES)
+            assert clock.now() == START + timedelta(seconds=THREADS * ADVANCES)
 
     def test_the_lost_update_probe_can_actually_fire(self) -> None:
         # `self._elapsed += n` is a read, an add and a store, and the store can
         # land on a value another thread has already replaced. This is that
-        # happening, so the test above is known to be capable of failing.
-        unguarded = _Unguarded()
+        # happening, so the test above is known to be capable of failing. The
+        # smallest total across the rounds is the one that lost the most, and
+        # taking the minimum reports it rather than merely that one existed.
+        def elapsed_after_a_race() -> float:
+            unguarded = _Unguarded()
+            _advance_from_many_threads(unguarded)
+            return unguarded.monotonic()
 
-        _advance_from_many_threads(unguarded)
-
-        assert unguarded.monotonic() < float(THREADS * ADVANCES)
+        assert min(elapsed_after_a_race() for _ in range(RACE_ROUNDS)) < float(THREADS * ADVANCES)
 
     def test_a_reader_never_sees_the_two_hands_disagree(self) -> None:
         # The instant is read before the elapsed count on purpose, which makes
@@ -585,7 +611,19 @@ class TestTheManualClockUnderThreads:
         # advancing between the two reads — can only leave the *elapsed* count
         # ahead, whereas a torn write is the only thing that can leave the
         # *instant* ahead. So this flags tearing and nothing else.
-        assert _torn_readings(ManualClock(START)) == []
+        torn = [
+            readings for _ in range(RACE_ROUNDS) if (readings := _torn_readings(ManualClock(START)))
+        ]
+
+        assert torn == []
 
     def test_the_tear_probe_can_actually_fire(self) -> None:
-        assert _torn_readings(_Unguarded()) != []
+        # Stops at the first round that tears, so this costs one race unless the
+        # scheduler is being unhelpful, and reports the readings it caught
+        # rather than only that it caught some.
+        found = next(
+            (torn for _ in range(RACE_ROUNDS) if (torn := _torn_readings(_Unguarded()))),
+            [],
+        )
+
+        assert found != []
