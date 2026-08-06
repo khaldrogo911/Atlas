@@ -137,10 +137,23 @@ adapters can implement, added deliberately, or a capability protocol — not a
 venue-shaped parameter.
 
 Shared machinery that most adapters want — reconnect loops, retry policy,
-connection-state bookkeeping — belongs in `BaseBrokerAdapter` (ATLAS-TASK-0007),
-a concrete class *between* the port and an implementation. It is not in the port
-because a replay engine has nothing to reconnect to and should not inherit the
-concept.
+connection-state bookkeeping — belongs in `BaseBrokerAdapter`, a class *between*
+the port and an implementation. It is not in the port because a replay engine
+has nothing to reconnect to and should not inherit the concept.
+
+`base.py` holds it. As of ATLAS-TASK-0007 it owns the session bookkeeping only:
+the two cached readings, the `Connection` snapshot assembled from them, and
+`is_connected` and `health`, which need nothing but that snapshot. A subclass
+supplies three properties saying where its state lives and who is at the far
+end. Connecting, the choice of clock, and the not-connected guard stay in the
+adapters, because the two implementations do each of those differently for
+venue-specific reasons — `base.py`'s module docstring names each one. Thread
+safety and retry policy are still unimplemented anywhere.
+
+It is deliberately not exported from `atlas.broker`. This package's namespace is
+what a *caller* depends on, and a caller has no use for a base class; an adapter
+author imports it from `atlas.broker.base`, the same way a venue is imported
+from `atlas.broker.mt5` or `atlas.broker.mock`.
 
 ## Design decisions worth knowing
 

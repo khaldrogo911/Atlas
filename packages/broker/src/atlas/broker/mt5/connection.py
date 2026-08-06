@@ -389,8 +389,9 @@ class MT5Session:
     to contain no domain models.
 
     Not thread safe on its own. The port requires adapters to be callable from
-    several threads, and ATLAS-TASK-0007's ``BaseBrokerAdapter`` is where that
-    locking belongs, because every adapter needs the same discipline.
+    several threads, and :class:`~atlas.broker.base.BaseBrokerAdapter` is where
+    that locking belongs, because every adapter needs the same discipline. That
+    class does not lock yet; it owns the session bookkeeping only.
     """
 
     def __init__(self, config: MT5Config, terminal_factory: object = load_terminal) -> None:

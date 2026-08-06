@@ -16,6 +16,13 @@ the port, its capability protocols, the request types that only the port uses,
 and the exception hierarchy every adapter raises, so that the two import paths
 say which layer a name belongs to.
 
+What an adapter is *written against* is deliberately not exported here.
+:class:`~atlas.broker.base.BaseBrokerAdapter` carries the session bookkeeping
+every implementation needs and is imported from :mod:`atlas.broker.base`, the
+same way a venue is imported from :mod:`atlas.broker.mt5` or
+:mod:`atlas.broker.mock`. This name space stays the one a caller depends on, and
+a caller has no use for a base class.
+
 See ``README.md`` in this directory for the design rationale.
 """
 

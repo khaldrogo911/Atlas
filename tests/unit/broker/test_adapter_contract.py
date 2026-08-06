@@ -31,6 +31,7 @@ ADAPTER_PATH = Path(inspect.getfile(adapter_module))
 PACKAGE_DIR = ADAPTER_PATH.parent
 PORT_SOURCES = (
     PACKAGE_DIR / "adapter.py",
+    PACKAGE_DIR / "base.py",
     PACKAGE_DIR / "exceptions.py",
     PACKAGE_DIR / "protocols.py",
     PACKAGE_DIR / "types.py",

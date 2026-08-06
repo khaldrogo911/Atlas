@@ -18,10 +18,11 @@ and in package documentation. This file is where they resolve to a status.
 | ATLAS-TASK-0004 | MetaTrader 5 broker adapter (demo foundation) | ✅ Complete | `36fa3e3` |
 | ATLAS-TASK-0005 | Broker exception hierarchy | ✅ Complete | `a07dcea` |
 | ATLAS-TASK-0006 | `MockBrokerAdapter` | ✅ Complete | `b11b154` |
-| ATLAS-TASK-0007 | `BaseBrokerAdapter` | ⬜ Not started | — |
+| ATLAS-TASK-0007 | `BaseBrokerAdapter` | ✅ Complete | `PENDING` |
 
-Nothing beyond ATLAS-TASK-0007 is defined. The tasks above are the ones the
-repository itself declares; this file does not speculate past them.
+Nothing beyond ATLAS-TASK-0007 is defined, and nothing here declares what
+ATLAS-TASK-0008 will be. The tasks above are the ones the repository itself
+declares; this file does not speculate past them.
 
 ## Completed
 
@@ -123,14 +124,45 @@ every concrete `BrokerAdapter` in the package by walking it, and holds all of
 them — not just this one — to identical signatures and the five capability
 protocols.
 
-## Next
-
 ### ATLAS-TASK-0007 — `BaseBrokerAdapter`
 
-A concrete class between the port and its implementations, taking over thread
-safety and any retry or reconnection policy from every adapter including the
-MT5 one. It is not in the port itself because a replay engine has nothing to
-reconnect to and should not inherit the concept.
+`atlas/broker/base.py`: a class between the port and its implementations, which
+both adapters now inherit from. It is not in the port itself because a replay
+engine has nothing to reconnect to and should not inherit the concept.
+
+What moved into it is what the two adapters were genuinely duplicating: the two
+cached session readings, the `Connection` snapshot assembled from them, and
+`is_connected` and `health`, which need nothing but that snapshot. A subclass
+answers three properties — where its state lives, and who is at the far end —
+and gets both reads for free. The public `BrokerAdapter` interface did not
+change, and neither adapter's observable behaviour did.
+
+What did *not* move is the more interesting half, because each case is a real
+difference rather than an accident, and lifting it would have been a regression:
+
+- **Connecting.** MT5 re-reads the brokerage name on a redundant connect; the
+  mock keys scheduled faults by operation so a test can fail `connect` and
+  `reconnect` independently.
+- **The clock.** MT5 stamps a heartbeat from the host; the mock stamps it from
+  the venue's own clock, which is what makes it deterministic.
+- **The not-connected guard.** The mock checks on entry to each method; MT5
+  checks once, inside `MT5Session.terminal()`. The refusal a caller sees is
+  identical, and a test asserts that across every guarded method on both.
+- **Locking.** Still nowhere. Both adapters remain not thread safe, and both
+  READMEs still say so. Serialising access is behaviour *neither* adapter has,
+  which makes it an addition rather than part of this move — the reason it was
+  left out of a refactor whose brief was not to change behaviour. `base.py` is
+  where it belongs when it is written.
+
+The class is deliberately not exported from `atlas.broker`. That namespace is
+what a caller depends on, and a caller has no use for a base class; an adapter
+author imports from `atlas.broker.base`. `base.py` is also in the port's AST
+import scan, so the same rule that keeps a venue SDK out of the port keeps one
+out of the base.
+
+No ADR was added or changed. Nothing recorded in an existing one was reversed —
+the boundary above is reasoning about *this* class, and it lives in its module
+docstring where an implementer reading the class will find it.
 
 ## Known documentation debt
 

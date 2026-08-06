@@ -43,8 +43,10 @@ Streaming — ``subscribe_ticks``, ``subscribe_candles``
 Threading
 ---------
 Not synchronised. The port requires adapters to be callable from several
-threads; that locking belongs in ``BaseBrokerAdapter`` (ATLAS-TASK-0007), where
-it is written once for every adapter rather than repeated in each.
+threads; that locking belongs in ``BaseBrokerAdapter``, which now exists and
+holds the session bookkeeping but does not yet lock. Adding it is a change in
+behaviour rather than a move of existing code, so it was left out of the
+refactor that created the base class.
 """
 
 from __future__ import annotations
@@ -52,9 +54,9 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Final
 
-from atlas.broker.adapter import BrokerAdapter
+from atlas.broker.base import BaseBrokerAdapter
 from atlas.broker.exceptions import BrokerDataUnavailableError, BrokerSymbolNotFoundError
-from atlas.broker.models import Connection, OrderSide, OrderType, SymbolTradeMode
+from atlas.broker.models import OrderSide, OrderType, SymbolTradeMode
 from atlas.broker.mt5.connection import VENUE, MT5Session
 from atlas.broker.mt5.constants import DOMAIN_TO_MT5_ORDER_TYPE, TIMEFRAME_TO_MT5
 from atlas.broker.mt5.mapper import (
@@ -75,6 +77,8 @@ if TYPE_CHECKING:
     from atlas.broker.models import (
         Account,
         Candle,
+        Connection,
+        ConnectionState,
         Execution,
         LatencyMilliseconds,
         Money,
@@ -91,11 +95,13 @@ if TYPE_CHECKING:
     from atlas.broker.mt5.connection import MT5Config, Terminal
     from atlas.broker.mt5.mapper import MT5AccountInfo, MT5RateRow, MT5SymbolInfo
     from atlas.broker.types import (
+        BrokerName,
         BrokerVersion,
         CandleHandler,
         OrderID,
         OrderRequest,
         PositionID,
+        ServerName,
         SubscriptionID,
         SymbolName,
         TickHandler,
@@ -128,7 +134,7 @@ _TRADING_DEFERRED: Final = (
 )
 
 
-class MT5BrokerAdapter(BrokerAdapter):
+class MT5BrokerAdapter(BaseBrokerAdapter):
     """Speaks the broker port to a MetaTrader 5 terminal.
 
     Constructed with an :class:`~atlas.broker.mt5.connection.MT5Config` and
@@ -139,6 +145,13 @@ class MT5BrokerAdapter(BrokerAdapter):
 
     Only ever used against a dedicated demo account at this stage. The four
     trading methods do not send anything to a venue.
+
+    Session bookkeeping — the cached latency and heartbeat, the
+    :class:`~atlas.broker.models.Connection` snapshot built from them,
+    :meth:`is_connected` and :meth:`health` — is inherited from
+    :class:`~atlas.broker.base.BaseBrokerAdapter`. What is MetaTrader 5's alone
+    stays here: where the state lives (on the session), which clock stamps a
+    heartbeat (the host's), and that connecting re-reads the brokerage name.
     """
 
     def __init__(self, config: MT5Config, *, session: MT5Session | None = None) -> None:
@@ -150,10 +163,9 @@ class MT5BrokerAdapter(BrokerAdapter):
                 Injected so that a test supplies a session wired to a stub
                 terminal and the MetaTrader5 package is never imported.
         """
+        super().__init__()
         self._session = session if session is not None else MT5Session(config)
         self._broker_name: str = _UNKNOWN_BROKER
-        self._last_latency_ms: float | None = None
-        self._last_heartbeat: datetime | None = None
 
     # --- Internals ------------------------------------------------------------
 
@@ -300,23 +312,40 @@ class MT5BrokerAdapter(BrokerAdapter):
             raise ValueError(msg)
         return value
 
-    def _connection(self) -> Connection:
-        """Build the connectivity snapshot from local state.
+    # --- What the base needs from this adapter --------------------------------
+
+    @property
+    def _session_state(self) -> ConnectionState:
+        """Where this adapter keeps its lifecycle state.
 
         Returns:
-            What the adapter currently believes about its session. Performs no
-            round trip, which is what allows both :meth:`health` and
-            :meth:`is_connected` to be safe to call at any time.
+            The session's state. The session owns it, not the adapter: the
+            terminal handle and the state that says whether it is usable are the
+            same fact, and splitting them across two objects is how they come to
+            disagree.
         """
-        state = self._session.state
-        return Connection(
-            state=state,
-            connected=state.is_usable,
-            latency_ms=self._last_latency_ms,
-            last_heartbeat=self._last_heartbeat,
-            broker=self._broker_name,
-            server=self._session.config.server,
-        )
+        return self._session.state
+
+    @property
+    def _session_broker(self) -> BrokerName:
+        """Which brokerage is at the far end.
+
+        Returns:
+            The name cached at connect, or ``"unknown"`` before the terminal has
+            ever reported one. See :data:`_UNKNOWN_BROKER` for why the product
+            name is not used as a stand-in.
+        """
+        return self._broker_name
+
+    @property
+    def _session_server(self) -> ServerName:
+        """Which trade server the session addresses.
+
+        Returns:
+            The configured server name. Known from construction, so
+            ``health()`` names the server it failed to reach.
+        """
+        return self._session.config.server
 
     # --- Lifecycle ------------------------------------------------------------
 
@@ -357,8 +386,7 @@ class MT5BrokerAdapter(BrokerAdapter):
             supervision dashboard actively misleading.
         """
         self._session.disconnect()
-        self._last_latency_ms = None
-        self._last_heartbeat = None
+        self._clear_session_readings()
 
     def reconnect(self) -> Connection:
         """Tear down the session and establish a new one.
@@ -377,27 +405,6 @@ class MT5BrokerAdapter(BrokerAdapter):
         """
         self.disconnect()
         return self.connect()
-
-    def is_connected(self) -> bool:
-        """Report whether a session is established, without a round trip.
-
-        Returns:
-            ``True`` if requests can be attempted.
-        """
-        return self._session.is_connected()
-
-    def health(self) -> Connection:
-        """Return the connectivity snapshot.
-
-        Returns:
-            The current state, with the last measured latency and heartbeat.
-
-        Notes:
-            Local state only, so it cannot fail when the venue is down — which
-            is the moment it is read. Use :meth:`ping` or :meth:`latency` to
-            refresh the underlying measurements first.
-        """
-        return self._connection()
 
     # --- Market data ----------------------------------------------------------
 

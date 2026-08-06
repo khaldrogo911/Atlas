@@ -55,9 +55,11 @@ the silent no-op the port's README forbids.
 Threading
 ---------
 Not yet thread-safe, deliberately, and in the same way the MetaTrader 5 adapter
-is not. Serialising access is ATLAS-TASK-0007's subject, and two adapters now
-needing the same guarantee is the evidence that it belongs in one place rather
-than in each of them.
+is not. Serialising access belongs in :class:`~atlas.broker.base.BaseBrokerAdapter`
+— two adapters needing the same guarantee is the evidence it belongs in one
+place — but that class does not lock yet. It took over the session bookkeeping
+both adapters were duplicating; locking is behaviour neither adapter has, which
+makes it an addition rather than part of that move.
 """
 
 from __future__ import annotations
@@ -67,7 +69,7 @@ from typing import TYPE_CHECKING, Final
 
 from pydantic import ValidationError
 
-from atlas.broker.adapter import BrokerAdapter
+from atlas.broker.base import BaseBrokerAdapter
 from atlas.broker.exceptions import (
     BrokerDataUnavailableError,
     BrokerInsufficientMarginError,
@@ -80,7 +82,6 @@ from atlas.broker.exceptions import (
 )
 from atlas.broker.mock.venue import VENUE, MockVenue
 from atlas.broker.models import (
-    Connection,
     ConnectionState,
     OrderSide,
     OrderType,
@@ -95,6 +96,7 @@ if TYPE_CHECKING:
     from atlas.broker.models import (
         Account,
         Candle,
+        Connection,
         Execution,
         LatencyMilliseconds,
         Money,
@@ -109,10 +111,12 @@ if TYPE_CHECKING:
         Volume,
     )
     from atlas.broker.types import (
+        BrokerName,
         CandleHandler,
         OrderID,
         OrderRequest,
         PositionID,
+        ServerName,
         SubscriptionID,
         SymbolName,
         TickHandler,
@@ -151,7 +155,7 @@ def _permits(mode: SymbolTradeMode, side: OrderSide) -> bool:
     return False
 
 
-class MockBrokerAdapter(BrokerAdapter):
+class MockBrokerAdapter(BaseBrokerAdapter):
     """The port, implemented against an in-memory venue.
 
     Args:
@@ -176,10 +180,9 @@ class MockBrokerAdapter(BrokerAdapter):
         Args:
             venue: The venue to trade against, or ``None`` for a fresh one.
         """
+        super().__init__()
         self._venue = venue if venue is not None else MockVenue()
         self._state = ConnectionState.DISCONNECTED
-        self._last_latency_ms: float | None = None
-        self._last_heartbeat: datetime | None = None
 
     @property
     def venue(self) -> MockVenue:
@@ -192,25 +195,39 @@ class MockBrokerAdapter(BrokerAdapter):
         """
         return self._venue
 
-    # --- Internals ------------------------------------------------------------
+    # --- Session state the base assembles its snapshot from ---------------------
 
-    def _connection(self) -> Connection:
-        """Describe the session as it currently stands.
+    @property
+    def _session_state(self) -> ConnectionState:
+        """The adapter's own lifecycle state.
 
         Returns:
-            The connectivity snapshot, naming the venue and server from the
-            account the venue holds, so that renaming the venue in a fixture
-            changes both places at once.
+            The state, which this adapter holds itself: there is no session
+            object below it to ask.
         """
-        account = self._venue.account
-        return Connection(
-            state=self._state,
-            connected=self._state.is_usable,
-            latency_ms=self._last_latency_ms,
-            last_heartbeat=self._last_heartbeat,
-            broker=account.broker,
-            server=account.server,
-        )
+        return self._state
+
+    @property
+    def _session_broker(self) -> BrokerName:
+        """Who the venue says is at the far end.
+
+        Returns:
+            The brokerage on the venue's account, so that renaming the venue in
+            a fixture changes what ``health`` reports too.
+        """
+        return self._venue.account.broker
+
+    @property
+    def _session_server(self) -> ServerName:
+        """Which server the venue's account belongs to.
+
+        Returns:
+            The server on the venue's account, read for the same reason as
+            :attr:`_session_broker`.
+        """
+        return self._venue.account.server
+
+    # --- Internals ------------------------------------------------------------
 
     def _require_session(self, operation: str) -> None:
         """Refuse an operation that needs a session when there is none.
@@ -540,8 +557,7 @@ class MockBrokerAdapter(BrokerAdapter):
         """
         self._venue.close_subscriptions(self)
         self._state = ConnectionState.DISCONNECTED
-        self._last_latency_ms = None
-        self._last_heartbeat = None
+        self._clear_session_readings()
 
     def reconnect(self) -> Connection:
         """Tear down the session and establish a new one.
@@ -560,32 +576,6 @@ class MockBrokerAdapter(BrokerAdapter):
         """
         self.disconnect()
         return self._establish("reconnect")
-
-    def is_connected(self) -> bool:
-        """Report whether the adapter currently has a usable session.
-
-        Returns:
-            ``True`` if requests can be attempted.
-
-        Notes:
-            Local and cheap, as the port requires, and never raises. It cannot
-            be made to fail: a scheduled failure against it is refused when it
-            is scheduled, not swallowed here.
-        """
-        return self._state.is_usable
-
-    def health(self) -> Connection:
-        """Return the full connectivity snapshot.
-
-        Returns:
-            The current state, with the last measured latency and the last
-            heartbeat, both ``None`` before the first measurement.
-
-        Notes:
-            Never raises. A disconnected adapter is described rather than
-            refused, which is the whole point of the method.
-        """
-        return self._connection()
 
     # --- Market data ----------------------------------------------------------
 
