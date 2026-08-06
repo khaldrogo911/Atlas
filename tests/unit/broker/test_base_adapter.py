@@ -70,11 +70,16 @@ pytestmark = pytest.mark.unit
 #: from the call table below because calling them is how a state is reached.
 LIFECYCLE: Final = ("connect", "disconnect", "reconnect", "is_connected", "health")
 
-#: The three hooks the base asks a subclass for.
-HOOKS: Final = ("_session_broker", "_session_server", "_session_state")
+#: The three state hooks the base asks a subclass for.
+STATE_HOOKS: Final = ("_session_broker", "_session_server", "_session_state")
 
-#: The two port methods the base answers on every adapter's behalf.
-INHERITED_READS: Final = ("health", "is_connected")
+#: The three lifecycle hooks the base calls with the session lock held. Their
+#: existence is the reason no adapter writes a lock: the public method is the
+#: base's, the venue-specific half is the adapter's.
+LIFECYCLE_HOOKS: Final = ("_connect", "_disconnect", "_reconnect")
+
+#: Everything the base asks a subclass for.
+HOOKS: Final = STATE_HOOKS + LIFECYCLE_HOOKS
 
 #: A start far enough back that the mock venue's clock — which begins at
 #: 2020-01-01 — is after it. A period ending before it began is rejected as a
@@ -283,9 +288,10 @@ def _probe(state: ConnectionState) -> BaseBrokerAdapter:
         state: What its ``_session_state`` hook reports.
 
     Returns:
-        An instance. Every port method is a stub; only the three hooks answer,
-        which is what allows the base's own behaviour to be tested without a
-        venue and in states no adapter fixture can reach.
+        An instance. Every abstract member is a stub, including the three
+        lifecycle hooks; only the three state hooks answer, which is what allows
+        the base's own behaviour to be tested without a venue and in states no
+        adapter fixture can reach.
     """
     members: dict[str, object] = dict.fromkeys(
         BaseBrokerAdapter.__abstractmethods__, lambda *_args, **_kwargs: None
@@ -311,17 +317,24 @@ class TestTheBaseIsAnAbstractLayer:
         assert inspect.isabstract(BaseBrokerAdapter)
         assert BaseBrokerAdapter not in ADAPTERS
 
-    def test_it_implements_exactly_the_two_reads_that_need_no_venue(self) -> None:
-        # "Minimal" as an assertion rather than a claim in a docstring. Anything
-        # else moved into the base has to be added here deliberately.
+    def test_it_implements_exactly_the_session_lifecycle(self) -> None:
+        # "Minimal" as an assertion rather than a claim in a docstring. The base
+        # now answers all five lifecycle methods and nothing else; anything else
+        # moved into it has to be added here deliberately.
         implemented = BrokerAdapter.__abstractmethods__ - BaseBrokerAdapter.__abstractmethods__
 
-        assert implemented == set(INHERITED_READS)
+        assert implemented == set(LIFECYCLE)
 
-    def test_it_asks_a_subclass_for_exactly_three_things(self) -> None:
+    def test_it_asks_a_subclass_for_exactly_six_things(self) -> None:
         added = BaseBrokerAdapter.__abstractmethods__ - BrokerAdapter.__abstractmethods__
 
         assert added == set(HOOKS)
+
+    def test_the_lifecycle_hooks_are_private_so_the_port_surface_is_unchanged(self) -> None:
+        # The base took over three public methods and delegates to three new
+        # ones. Public replacements would have widened the interface every
+        # caller depends on, which the task forbids.
+        assert all(hook.startswith("_") for hook in LIFECYCLE_HOOKS)
 
     @pytest.mark.parametrize("hook", HOOKS)
     def test_a_subclass_that_omits_a_hook_cannot_be_built(self, hook: str) -> None:
@@ -664,25 +677,34 @@ class TestInheritingTheBaseKeepsThePortSatisfied:
         assert adapter._session_broker
         assert adapter._session_server
 
-    @pytest.mark.parametrize("method", INHERITED_READS)
-    def test_the_inherited_read_keeps_the_ports_pinned_signature(
+    @pytest.mark.parametrize("hook", LIFECYCLE_HOOKS)
+    def test_it_supplies_the_lifecycle_hook_itself(self, case: AdapterCase, hook: str) -> None:
+        # The other half of the arrangement: the base owns the public method,
+        # the adapter owns the venue-specific body. An adapter that inherited
+        # the hook too would have no lifecycle at all.
+        assert hook in vars(case.adapter_type)
+
+    @pytest.mark.parametrize("method", LIFECYCLE)
+    def test_the_inherited_method_keeps_the_ports_pinned_signature(
         self, case: AdapterCase, method: str
     ) -> None:
         signature = str(inspect.signature(getattr(case.adapter_type, method)))
 
         assert signature == PINNED_SIGNATURES[method]
 
-    @pytest.mark.parametrize("method", INHERITED_READS)
-    def test_the_read_comes_from_the_base_and_not_from_the_port(
+    @pytest.mark.parametrize("method", LIFECYCLE)
+    def test_the_method_comes_from_the_base_and_not_from_the_port(
         self, case: AdapterCase, method: str
     ) -> None:
         assert getattr(case.adapter_type, method) is getattr(BaseBrokerAdapter, method)
         assert getattr(case.adapter_type, method) is not getattr(BrokerAdapter, method)
 
-    @pytest.mark.parametrize("method", INHERITED_READS)
-    def test_the_adapter_no_longer_defines_the_read_itself(
+    @pytest.mark.parametrize("method", LIFECYCLE)
+    def test_the_adapter_no_longer_defines_the_method_itself(
         self, case: AdapterCase, method: str
     ) -> None:
-        # The duplication is gone rather than shadowed. An adapter that kept its
-        # own copy would pass every behavioural test in this module.
+        # The duplication is gone rather than shadowed, and for the three
+        # lifecycle methods it is also what makes the locking unskippable: an
+        # adapter that kept its own copy would pass every behavioural test in
+        # this module while taking no lock at all.
         assert method not in vars(case.adapter_type)

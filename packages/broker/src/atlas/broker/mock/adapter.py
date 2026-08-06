@@ -54,12 +54,20 @@ the silent no-op the port's README forbids.
 
 Threading
 ---------
-Not yet thread-safe, deliberately, and in the same way the MetaTrader 5 adapter
-is not. Serialising access belongs in :class:`~atlas.broker.base.BaseBrokerAdapter`
-— two adapters needing the same guarantee is the evidence it belongs in one
-place — but that class does not lock yet. It took over the session bookkeeping
-both adapters were duplicating; locking is behaviour neither adapter has, which
-makes it an addition rather than part of that move.
+The session is synchronised, by :class:`~atlas.broker.base.BaseBrokerAdapter`
+and not here. ``connect``, ``disconnect`` and ``reconnect`` are that class's
+methods; this one supplies :meth:`MockBrokerAdapter._connect`,
+:meth:`MockBrokerAdapter._disconnect` and :meth:`MockBrokerAdapter._reconnect`,
+which run with the session lock already held. No lock is written in this module,
+and none should be: two adapters needing the same guarantee is the evidence it
+belongs in one place. The contract is in that class's docstring and in ADR-0007.
+
+The venue is a different matter and is *not* synchronised. It has no lock and
+mints identifiers with a non-atomic read-modify-write, so one
+:class:`~atlas.broker.mock.venue.MockVenue` driven from two threads — whether
+through two adapters or one — is outside the guarantee above. It is a test
+double for a remote server, and a remote server is not something this process
+could lock either; a test that wants concurrency drives one adapter per venue.
 """
 
 from __future__ import annotations
@@ -277,10 +285,14 @@ class MockBrokerAdapter(BaseBrokerAdapter):
             BrokerError: Whatever the venue has been told to raise here.
 
         Notes:
-            Shared by :meth:`connect` and :meth:`reconnect` so that the two
+            Shared by :meth:`_connect` and :meth:`_reconnect` so that the two
             behave identically, but keyed by ``operation`` so that each consumes
             only its own scheduled failure — a test making a connection fail
             must not accidentally make the recovery fail too.
+
+            Reached only from the base class's lifecycle methods, so the session
+            lock is held throughout and ``self._state`` needs no further
+            synchronisation.
         """
         failure = self._venue.take_failure(operation)
         if failure is not None:
@@ -288,7 +300,7 @@ class MockBrokerAdapter(BaseBrokerAdapter):
             raise failure
 
         self._state = ConnectionState.CONNECTED
-        self._last_heartbeat = self._venue.now()
+        self._record_heartbeat(self._venue.now())
         return self._connection()
 
     def _resolve_symbol(self, symbol: SymbolName) -> Symbol:
@@ -515,7 +527,7 @@ class MockBrokerAdapter(BaseBrokerAdapter):
 
     # --- Lifecycle ------------------------------------------------------------
 
-    def connect(self) -> Connection:
+    def _connect(self) -> Connection:
         """Establish a session with the venue.
 
         Returns:
@@ -527,16 +539,18 @@ class MockBrokerAdapter(BaseBrokerAdapter):
                 succeeds.
 
         Notes:
-            Calling this while already connected returns the current state
-            without touching anything, as the port requires — including without
-            consuming a scheduled failure, since a call that is contractually
-            not an error must not become one.
+            Calling ``connect`` while already connected returns the current
+            state without touching anything, as the port requires — including
+            without consuming a scheduled failure, since a call that is
+            contractually not an error must not become one. That is also what
+            makes the second of two concurrent connects harmless: it waits for
+            the session lock, finds a session, and returns it.
         """
         if self._state.is_usable:
             return self._connection()
         return self._establish("connect")
 
-    def disconnect(self) -> None:
+    def _disconnect(self) -> None:
         """Close the session and release everything it holds.
 
         Returns:
@@ -551,15 +565,21 @@ class MockBrokerAdapter(BaseBrokerAdapter):
             they belong to the venue, and disconnecting is not an instruction to
             flatten.
 
-            The latency and heartbeat readings are cleared, because they
+            The latency and heartbeat readings are cleared first, because they
             described a session that no longer exists and reporting them
-            afterwards would date a dead connection.
+            afterwards would date a dead connection — and clearing them before
+            the state moves means a concurrent ``health`` cannot catch the pair
+            in between.
+
+            Cancelling the subscriptions runs under the session lock, and
+            :meth:`~atlas.broker.mock.venue.MockVenue.close_subscriptions`
+            invokes no handler, so no user code runs while the lock is held.
         """
+        self._clear_session_readings()
         self._venue.close_subscriptions(self)
         self._state = ConnectionState.DISCONNECTED
-        self._clear_session_readings()
 
-    def reconnect(self) -> Connection:
+    def _reconnect(self) -> Connection:
         """Tear down the session and establish a new one.
 
         Returns:
@@ -573,6 +593,9 @@ class MockBrokerAdapter(BaseBrokerAdapter):
             dropped before the attempt — so a reconnect that fails leaves no
             handles behind either. Exactly one attempt is made; backoff is a
             caller's policy.
+
+            Composed from the public :meth:`disconnect`, which re-enters the
+            session lock this method already holds.
         """
         self.disconnect()
         return self._establish("reconnect")
@@ -1342,7 +1365,7 @@ class MockBrokerAdapter(BaseBrokerAdapter):
             return False
         if self._venue.take_failure("ping") is not None:
             return False
-        self._last_heartbeat = self._venue.now()
+        self._record_heartbeat(self._venue.now())
         return True
 
     def latency(self) -> LatencyMilliseconds:
@@ -1367,9 +1390,9 @@ class MockBrokerAdapter(BaseBrokerAdapter):
             does.
         """
         self._guard("latency")
-        self._last_latency_ms = self._venue.latency_ms
-        self._last_heartbeat = self._venue.now()
-        return self._venue.latency_ms
+        measured = self._venue.latency_ms
+        self._record_latency(measured, at=self._venue.now())
+        return measured
 
     def server_time(self) -> Timestamp:
         """Return the venue's current time.

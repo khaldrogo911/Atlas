@@ -19,9 +19,10 @@ and in package documentation. This file is where they resolve to a status.
 | ATLAS-TASK-0005 | Broker exception hierarchy | ✅ Complete | `a07dcea` |
 | ATLAS-TASK-0006 | `MockBrokerAdapter` | ✅ Complete | `b11b154` |
 | ATLAS-TASK-0007 | `BaseBrokerAdapter` | ✅ Complete | `1673f79` |
+| ATLAS-TASK-0008 | Adapter concurrency | ✅ Complete | `PENDING` |
 
-Nothing beyond ATLAS-TASK-0007 is defined, and nothing here declares what
-ATLAS-TASK-0008 will be. The tasks above are the ones the repository itself
+Nothing beyond ATLAS-TASK-0008 is defined, and nothing here declares what
+ATLAS-TASK-0009 will be. The tasks above are the ones the repository itself
 declares; this file does not speculate past them.
 
 ## Completed
@@ -148,11 +149,11 @@ difference rather than an accident, and lifting it would have been a regression:
 - **The not-connected guard.** The mock checks on entry to each method; MT5
   checks once, inside `MT5Session.terminal()`. The refusal a caller sees is
   identical, and a test asserts that across every guarded method on both.
-- **Locking.** Still nowhere. Both adapters remain not thread safe, and both
-  READMEs still say so. Serialising access is behaviour *neither* adapter has,
-  which makes it an addition rather than part of this move — the reason it was
-  left out of a refactor whose brief was not to change behaviour. `base.py` is
-  where it belongs when it is written.
+- **Locking.** Left out here, and written next. Serialising access was behaviour
+  *neither* adapter had, which made it an addition rather than part of this move
+  — the reason it was excluded from a refactor whose brief was not to change
+  behaviour. `base.py` was named as where it belonged, and ATLAS-TASK-0008 is
+  where it went.
 
 The class is deliberately not exported from `atlas.broker`. That namespace is
 what a caller depends on, and a caller has no use for a base class; an adapter
@@ -164,10 +165,58 @@ No ADR was added or changed. Nothing recorded in an existing one was reversed �
 the boundary above is reasoning about *this* class, and it lives in its module
 docstring where an implementer reading the class will find it.
 
+### ATLAS-TASK-0008 — adapter concurrency
+
+`BaseBrokerAdapter` gained two locks and, with them, the lifecycle itself.
+`connect`, `disconnect` and `reconnect` are the base's own methods now: each
+takes the session lock and delegates to a `_connect`, `_disconnect` or
+`_reconnect` hook that the subclass supplies and that runs with the lock already
+held. Neither adapter names a lock anywhere, and exactly one module in
+`atlas.broker` imports `threading` — asserted by a test rather than left to
+review, because duplicated locking is the failure this placement exists to avoid.
+
+The public `BrokerAdapter` interface did not change, and neither adapter's
+observable behaviour did. [ADR-0007](adr/0007-two-locks-in-the-base-adapter.md)
+records the contract in full: what is guaranteed, what is deliberately not, and
+why each rejected alternative was rejected. Two decisions carry it.
+
+- **The session lock is re-entrant; the readings lock is not.** Both adapters
+  compose a reconnect out of the public `disconnect` and `connect`, so the
+  session lock is re-acquired on every reconnect and a plain lock would make the
+  obvious way of writing `_reconnect` a self-deadlock — found in production, by
+  whoever writes the third adapter, at the moment a session needed replacing. The
+  readings lock is a leaf, and a plain lock there fails loudly if it ever stops
+  being one.
+- **Supervision is never blocked.** `health()` and `is_connected()` take no
+  session lock, so a supervisor still answers while a connect is parked inside an
+  unresponsive terminal — the one moment it exists for. That is asserted against
+  the real connect path, by parking a real adapter inside it, rather than against
+  a lock held by hand. The other twenty-six port methods take no lock at all.
+
+One behavioural adjustment was needed, and it is a write ordering rather than a
+third lock: both adapters now clear the cached readings *before* taking the
+session down, which closes the window in which a racing `health()` reports no
+session and a live latency in the same snapshot.
+
+65 concurrency tests were added in `tests/unit/broker/test_adapter_concurrency.py`.
+Every test asserting that something *cannot* happen is paired with one asserting
+that the opposite case does, because a suite in which nothing is ever blocked is
+satisfied just as well by an adapter holding no locks — which is the state this
+task started from.
+
+An 18-mutant campaign over the new synchronisation — each lock removed, weakened,
+widened, aliased, shared between instances, and the teardown write order reversed
+— killed 16 on the first run. Both survivors were gaps in the tests rather than
+equivalent mutants: removing the lock from `reconnect` alone, and building the
+`Connection` model under the readings lock. Both are killed now. The first is the
+more instructive: because each half of a reconnect takes the lock on its own
+account, the halves never overlap even when the outer call holds nothing, so the
+tests had to be rewritten to assert the lock's *hold depth* instead.
+
 ## Known documentation debt
 
 - **ADR-015 and ADR-016** were declared dependencies of ATLAS-TASK-0004 but do
-  not exist. `docs/adr/` currently ends at 0006.
+  not exist. `docs/adr/` currently ends at 0007.
 - **Version.** ATLAS-TASK-0004 was specified as `v0.2.0-alpha`; `pyproject.toml`
   and `README.md` still declare `v0.1.0-alpha`. A contract test ties the
   `atlas-core` image tag to `[project].version`, so a bump touches all three.

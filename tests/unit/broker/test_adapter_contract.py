@@ -149,8 +149,14 @@ PERMITTED_BUILTIN_EXCEPTIONS: Final = frozenset({"ValueError"})
 
 _EXCEPTION_NAME = re.compile(r"\b([A-Z]\w*Error)\b")
 
+#: ``threading`` is here for ``base.py`` alone: the synchronisation the port
+#: demands has to be implemented with something, and the standard library's
+#: locks are the smallest thing that does it. It stays out of
+#: FORBIDDEN_IMPORT_ROOTS below because it names no venue and opens no channel —
+#: unlike ``socket`` and ``asyncio``, which are forbidden precisely because they
+#: would mean the port had started talking to something.
 PERMITTED_IMPORT_ROOTS: Final = frozenset(
-    {"__future__", "abc", "collections", "enum", "typing", "pydantic", "atlas"}
+    {"__future__", "abc", "collections", "enum", "threading", "typing", "pydantic", "atlas"}
 )
 
 FORBIDDEN_IMPORT_ROOTS: Final = frozenset(

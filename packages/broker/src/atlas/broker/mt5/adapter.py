@@ -42,11 +42,22 @@ Streaming — ``subscribe_ticks``, ``subscribe_candles``
 
 Threading
 ---------
-Not synchronised. The port requires adapters to be callable from several
-threads; that locking belongs in ``BaseBrokerAdapter``, which now exists and
-holds the session bookkeeping but does not yet lock. Adding it is a change in
-behaviour rather than a move of existing code, so it was left out of the
-refactor that created the base class.
+The session is synchronised by :class:`~atlas.broker.base.BaseBrokerAdapter`,
+not here. ``connect``, ``disconnect`` and ``reconnect`` are that class's
+methods; this one supplies :meth:`MT5BrokerAdapter._connect`,
+:meth:`MT5BrokerAdapter._disconnect` and :meth:`MT5BrokerAdapter._reconnect`,
+which run with the session lock already held — which is what makes it safe for
+``connect`` to read the brokerage name from the terminal and cache it. No lock
+is written in this module. The contract is in the base class's docstring and in
+ADR-0007.
+
+Requests are deliberately not serialised, so two threads can be inside the
+terminal at once. The MetaTrader 5 Python API is a single IPC channel and
+imposes its own ordering on concurrent calls; Atlas does not add a second layer
+of queuing on top of it, and a request that races a ``disconnect`` fails with
+:class:`~atlas.broker.exceptions.BrokerNotConnectedError` from
+:meth:`~atlas.broker.mt5.connection.MT5Session.terminal`, which is already in
+every one of those methods' ``Raises:`` contracts.
 """
 
 from __future__ import annotations
@@ -149,9 +160,10 @@ class MT5BrokerAdapter(BaseBrokerAdapter):
     Session bookkeeping — the cached latency and heartbeat, the
     :class:`~atlas.broker.models.Connection` snapshot built from them,
     :meth:`is_connected` and :meth:`health` — is inherited from
-    :class:`~atlas.broker.base.BaseBrokerAdapter`. What is MetaTrader 5's alone
-    stays here: where the state lives (on the session), which clock stamps a
-    heartbeat (the host's), and that connecting re-reads the brokerage name.
+    :class:`~atlas.broker.base.BaseBrokerAdapter`, and so is the locking around
+    the session lifecycle. What is MetaTrader 5's alone stays here: where the
+    state lives (on the session), which clock stamps a heartbeat (the host's),
+    and that connecting re-reads the brokerage name.
     """
 
     def __init__(self, config: MT5Config, *, session: MT5Session | None = None) -> None:
@@ -349,7 +361,7 @@ class MT5BrokerAdapter(BaseBrokerAdapter):
 
     # --- Lifecycle ------------------------------------------------------------
 
-    def connect(self) -> Connection:
+    def _connect(self) -> Connection:
         """Establish a session with the terminal.
 
         Returns:
@@ -365,13 +377,21 @@ class MT5BrokerAdapter(BaseBrokerAdapter):
             The brokerage's name is read here and cached, because it is the one
             identity fact the terminal reports only through the account and
             :meth:`health` must be able to answer after the session has dropped.
+            The read and the cache write are both inside the session lock, so a
+            second thread's ``connect`` cannot interleave between them and leave
+            the name describing a different session than the state does.
+
+            :meth:`~atlas.broker.mt5.connection.MT5Session.connect` returns
+            early when the session is already usable, so the waiter behind a
+            concurrent connect re-reads the name and returns rather than
+            initialising the terminal twice.
         """
         self._session.connect()
         self._broker_name = self._account_info().company
-        self._last_heartbeat = self._now()
+        self._record_heartbeat(self._now())
         return self._connection()
 
-    def disconnect(self) -> None:
+    def _disconnect(self) -> None:
         """Close the session.
 
         Returns:
@@ -383,12 +403,14 @@ class MT5BrokerAdapter(BaseBrokerAdapter):
             The latency and heartbeat readings are cleared rather than kept.
             They describe a session that no longer exists, and a stale
             measurement presented as current is the failure that makes a
-            supervision dashboard actively misleading.
+            supervision dashboard actively misleading. They are cleared before
+            the session goes down so that a concurrent ``health`` cannot observe
+            a dead session still reporting a live latency.
         """
-        self._session.disconnect()
         self._clear_session_readings()
+        self._session.disconnect()
 
-    def reconnect(self) -> Connection:
+    def _reconnect(self) -> Connection:
         """Tear down the session and establish a new one.
 
         Returns:
@@ -402,6 +424,9 @@ class MT5BrokerAdapter(BaseBrokerAdapter):
         Notes:
             Exactly one attempt, with no backoff, as the port specifies. There
             are no subscriptions to invalidate because this adapter issues none.
+
+            Composed from the public :meth:`disconnect` and :meth:`connect`,
+            both of which re-enter the session lock this method already holds.
         """
         self.disconnect()
         return self.connect()
@@ -1087,7 +1112,7 @@ class MT5BrokerAdapter(BaseBrokerAdapter):
             return False
 
         if answered:
-            self._last_heartbeat = self._now()
+            self._record_heartbeat(self._now())
         return answered
 
     def latency(self) -> LatencyMilliseconds:
@@ -1119,8 +1144,7 @@ class MT5BrokerAdapter(BaseBrokerAdapter):
             raise self._session.error_from_terminal(context)
 
         measured = info.ping_last / _MICROSECONDS_PER_MILLISECOND
-        self._last_latency_ms = measured
-        self._last_heartbeat = self._now()
+        self._record_latency(measured, at=self._now())
         return measured
 
     def server_time(self) -> Timestamp:

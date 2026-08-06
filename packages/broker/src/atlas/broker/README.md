@@ -141,14 +141,18 @@ connection-state bookkeeping — belongs in `BaseBrokerAdapter`, a class *betwee
 the port and an implementation. It is not in the port because a replay engine
 has nothing to reconnect to and should not inherit the concept.
 
-`base.py` holds it. As of ATLAS-TASK-0007 it owns the session bookkeeping only:
-the two cached readings, the `Connection` snapshot assembled from them, and
-`is_connected` and `health`, which need nothing but that snapshot. A subclass
-supplies three properties saying where its state lives and who is at the far
-end. Connecting, the choice of clock, and the not-connected guard stay in the
-adapters, because the two implementations do each of those differently for
-venue-specific reasons — `base.py`'s module docstring names each one. Thread
-safety and retry policy are still unimplemented anywhere.
+`base.py` holds it. ATLAS-TASK-0007 moved the session bookkeeping there: the two
+cached readings, the `Connection` snapshot assembled from them, and
+`is_connected` and `health`, which need nothing but that snapshot.
+ATLAS-TASK-0008 added the synchronisation, and that moved the lifecycle itself
+up with it — `connect`, `disconnect` and `reconnect` are the base's own methods
+now, each taking the session lock and delegating to a hook. A subclass answers
+six members in all: three properties saying where its state lives and who is at
+the far end, and three hooks that run with the lock already held. The choice of
+clock and the not-connected guard stay in the adapters, because the two
+implementations do each of those differently for venue-specific reasons —
+`base.py`'s module docstring names each one, and ADR-0007 records the
+concurrency contract in full. Retry policy is still unimplemented anywhere.
 
 It is deliberately not exported from `atlas.broker`. This package's namespace is
 what a *caller* depends on, and a caller has no use for a base class; an adapter

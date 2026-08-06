@@ -174,13 +174,16 @@ required margin is asserting on this formula, and the formula is a simplificatio
 
 ## Current limitations
 
-- **Not thread safe**, in the same way and for the same reason the MetaTrader 5
-  adapter is not. The port requires adapters to be callable from several
-  threads; that locking belongs in `BaseBrokerAdapter`, written once rather than
-  repeated in each adapter. Two adapters now needing the same guarantee is the
-  evidence it belongs in one place. That class exists as of ATLAS-TASK-0007 and
-  this adapter inherits from it, but it holds session bookkeeping only — nothing
-  in it locks yet.
+- **The adapter is thread safe; the venue is not.** ATLAS-TASK-0008 put the
+  locking in `BaseBrokerAdapter`, written once rather than repeated in each
+  adapter, and this one inherits it without naming a lock anywhere: the session
+  lifecycle is serialised, `health()` still answers during an in-flight connect,
+  and no lock is held while a subscription handler runs. `MockVenue` has none of
+  that. It carries no lock and mints identifiers with a non-atomic
+  read-modify-write, so one venue shared between two adapters driven from two
+  threads is outside every guarantee above. That is deliberate: the venue doubles
+  a remote server, and a remote server is not something this process could lock
+  either. ADR-0007 has the contract, including what it declines to promise.
 - **`can_trade` reports permission, not market hours.** The venue has no session
   schedule. This matches the MT5 adapter's limitation exactly, which is useful:
   a caller that gets it wrong gets it wrong identically in both.
@@ -195,5 +198,5 @@ required margin is asserting on this formula, and the formula is a simplificatio
 
 | Task | What it changes here |
 | --- | --- |
-| *(unscheduled)* — locking in `BaseBrokerAdapter` | Takes over thread safety, and any retry or reconnection policy, from this adapter and the MT5 one. ATLAS-TASK-0007 created the class and moved the session bookkeeping into it; none of this followed, because none of it exists in either adapter to move |
+| *(unscheduled)* — retry and reconnection policy in `BaseBrokerAdapter` | Would arrive the way locking did in ATLAS-TASK-0008: written once in the base and inherited here unnamed. Nothing retries anything today |
 | *(unscheduled)* — replay engine | A separate implementation that *does* trigger on price, built where a fill model is the subject rather than a side effect. This package's boundary is what keeps that decision available |

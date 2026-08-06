@@ -217,11 +217,16 @@ be implemented truthfully. The no-fabrication rule wins.
 - **`get_ticks` is a loop.** The terminal offers no batch quote call, so the
   quotes are microseconds apart rather than simultaneous. That is as close to one
   snapshot as MetaTrader 5 allows.
-- **Not thread safe.** The port requires adapters to be callable from several
-  threads. That locking belongs in `BaseBrokerAdapter`, written once for every
-  adapter rather than repeated in each. That class now exists and holds the
-  session bookkeeping, but it does not lock: locking is behaviour neither
-  adapter has, so adding it was not part of the refactor that created the class.
+- **Thread safe at the session, not across requests.** ATLAS-TASK-0008 put the
+  locking in `BaseBrokerAdapter`, written once for every adapter rather than
+  repeated in each, and this one inherits it without naming a lock: the lifecycle
+  is serialised, and `health()` still answers while a connect is parked in a
+  terminal that has stopped responding — the situation in which somebody asks.
+  What is *not* guaranteed is ordering between requests. The MetaTrader 5 Python
+  API is a single IPC channel with its own ordering, and no lock here adds a
+  second one on top of it. A request racing a lifecycle change fails with an
+  error already in its documented `Raises:` contract rather than returning a
+  wrong answer. ADR-0007 has the contract in full.
 - **Bar close times are nominal.** MetaTrader 5 reports only a bar's open time.
   The close is derived by adding the timeframe's nominal duration, so a daily bar
   spanning a daylight-saving transition closes an hour away from the derived
@@ -270,7 +275,7 @@ Two mappings are worth stating because they are judgement calls:
 
 | Task | What it changes here |
 | --- | --- |
-| *(unscheduled)* — locking in `BaseBrokerAdapter` | Takes over thread safety, and any retry or reconnection policy, from every adapter including this one. ATLAS-TASK-0007 created the class and moved the session bookkeeping into it; none of this followed, because none of it exists in either adapter to move |
+| *(unscheduled)* — retry and reconnection policy in `BaseBrokerAdapter` | Would arrive the way locking did in ATLAS-TASK-0008: written once in the base and inherited here unnamed. Nothing retries anything today, and a dropped session is the supervisor's problem |
 | *(unscheduled)* — trading | `order_send` behind the four trading methods: filling mode per instrument, a deviation policy, and reading deals back to report the price a fill actually got |
 | *(unscheduled)* — streaming | A polling loop behind `subscribe_ticks` and `subscribe_candles`, or a decision that this venue does not stream |
 | *(unscheduled)* — session schedules | Reading trading hours so `can_trade` can answer about the market rather than only about permission |
