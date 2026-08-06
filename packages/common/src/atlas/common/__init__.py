@@ -8,10 +8,14 @@ Boundary:
     May not import any other ``atlas.*`` package, and may not encode domain
     rules of its own.
 
-ATLAS-TASK-0001 establishes this package as an empty, importable unit with a
-declared responsibility. Its implementation is delivered by a later task.
+ATLAS-TASK-0001 established this package as an empty, importable unit with a
+declared responsibility. ATLAS-TASK-0009 delivered the first of it: the
+:mod:`atlas.common.clock` port and its two implementations. The rest arrives
+with the tasks that need it.
 """
 
 from __future__ import annotations
 
-__all__: list[str] = []
+from atlas.common.clock import Clock, ManualClock, SystemClock
+
+__all__ = ["Clock", "ManualClock", "SystemClock"]

@@ -14,10 +14,14 @@ factory returns :class:`~tests.unit.broker.mt5.conftest.FakeTerminal` — so the
 MetaTrader5 package is never imported and these tests run on a Linux runner
 where the wheel cannot be installed at all.
 
-The host clock is frozen at :data:`~tests.unit.broker.mt5.conftest.NOW` by the
-``adapter`` fixture. Two behaviours — dropping the forming bar, and stamping a
-heartbeat — are defined against "now", and a test that reads the real clock
-would assert either nothing or something that fails at a period boundary.
+The clock is frozen at :data:`~tests.unit.broker.mt5.conftest.NOW` by the
+``adapter`` fixture, which hands the adapter a
+:class:`~atlas.common.clock.ManualClock` the way it hands it a session. Two
+behaviours — dropping the forming bar, and stamping a heartbeat — are defined
+against "now", and a test that read the real clock would assert either nothing
+or something that fails at a period boundary. The ``offline`` fixture takes the
+default clock instead, so the adapter's production path — the host's clock,
+reached through no injection at all — is exercised rather than only described.
 """
 
 from __future__ import annotations
@@ -58,6 +62,7 @@ from atlas.broker.mt5.constants import (
     TIMEFRAME_M15,
 )
 from atlas.broker.types import OrderRequest
+from atlas.common.clock import ManualClock
 from tests.unit.broker.mt5.conftest import (
     NOW,
     FakeAccountInfo,
@@ -127,19 +132,31 @@ def offline(config: MT5Config, session: MT5Session) -> MT5BrokerAdapter:
 
 
 @pytest.fixture
+def clock() -> ManualClock:
+    """Return a clock standing still at ``NOW``.
+
+    Returns:
+        The clock the ``adapter`` fixture injects. A test needing time to pass
+        takes this fixture too and calls ``advance``; nothing here sleeps, and
+        no test's result depends on how long it took to run.
+    """
+    return ManualClock(NOW)
+
+
+@pytest.fixture
 def adapter(
     config: MT5Config,
     session: MT5Session,
     terminal: FakeTerminal,
-    monkeypatch: pytest.MonkeyPatch,
+    clock: ManualClock,
 ) -> MT5BrokerAdapter:
-    """Return a connected adapter whose host clock is frozen at ``NOW``.
+    """Return a connected adapter whose clock is frozen at ``NOW``.
 
     Args:
         config: Credentials and terminal location.
         session: A session wired to the fake terminal.
         terminal: The terminal that session will connect to.
-        monkeypatch: Used to freeze the clock.
+        clock: The manual clock to run on, injected rather than patched in.
 
     Returns:
         A connected adapter.
@@ -150,8 +167,7 @@ def adapter(
         establishing the session always makes. The lifecycle tests build their
         own adapter from the ``offline`` fixture for exactly that reason.
     """
-    monkeypatch.setattr(MT5BrokerAdapter, "_now", staticmethod(lambda: NOW))
-    built = MT5BrokerAdapter(config, session=session)
+    built = MT5BrokerAdapter(config, session=session, clock=clock)
     built.connect()
     terminal.calls.clear()
     return built
@@ -722,10 +738,9 @@ class TestDiagnostics:
         assert adapter.ping() is True
 
     def test_a_successful_ping_refreshes_the_heartbeat(
-        self, adapter: MT5BrokerAdapter, monkeypatch: pytest.MonkeyPatch
+        self, adapter: MT5BrokerAdapter, clock: ManualClock
     ) -> None:
-        later = NOW + timedelta(minutes=5)
-        monkeypatch.setattr(MT5BrokerAdapter, "_now", staticmethod(lambda: later))
+        later = clock.advance(timedelta(minutes=5))
 
         adapter.ping()
 

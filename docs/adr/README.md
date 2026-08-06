@@ -16,6 +16,7 @@ the history of the system's reasoning stays intact.
 | [0005](0005-polyglot-persistence.md) | PostgreSQL, Redis and DuckDB for three distinct jobs | Accepted |
 | [0006](0006-mock-adapter-simulates-bookkeeping-not-price.md) | The mock adapter simulates bookkeeping, not price | Accepted |
 | [0007](0007-two-locks-in-the-base-adapter.md) | Two locks in the base adapter, and none below it | Accepted |
+| [0008](0008-time-is-injected.md) | Time is injected, and it has two hands | Accepted |
 
 ## Writing one
 

@@ -187,9 +187,19 @@ class MockBrokerAdapter(BaseBrokerAdapter):
 
         Args:
             venue: The venue to trade against, or ``None`` for a fresh one.
+
+        Notes:
+            The adapter's clock *is* the venue's, and there is no parameter to
+            make it anything else. Determinism is what this adapter exists for,
+            and a second clock is the way to lose it: heartbeats stamped from
+            venue time and aged against the host would produce an age that
+            depends on how long the test took to run. Inject deterministic time
+            by giving the venue its start — ``MockVenue(now=...)`` — and moving
+            it with ``venue.advance``.
         """
-        super().__init__()
-        self._venue = venue if venue is not None else MockVenue()
+        resolved = venue if venue is not None else MockVenue()
+        super().__init__(clock=resolved.clock)
+        self._venue = resolved
         self._state = ConnectionState.DISCONNECTED
 
     @property

@@ -20,9 +20,10 @@ and in package documentation. This file is where they resolve to a status.
 | ATLAS-TASK-0006 | `MockBrokerAdapter` | ✅ Complete | `b11b154` |
 | ATLAS-TASK-0007 | `BaseBrokerAdapter` | ✅ Complete | `1673f79` |
 | ATLAS-TASK-0008 | Adapter concurrency | ✅ Complete | `e451608` |
+| ATLAS-TASK-0009 | The `Clock` abstraction | ✅ Complete | `PENDING` |
 
-Nothing beyond ATLAS-TASK-0008 is defined, and nothing here declares what
-ATLAS-TASK-0009 will be. The tasks above are the ones the repository itself
+Nothing beyond ATLAS-TASK-0009 is defined, and nothing here declares what
+ATLAS-TASK-0010 will be. The tasks above are the ones the repository itself
 declares; this file does not speculate past them.
 
 ## Completed
@@ -213,10 +214,73 @@ more instructive: because each half of a reconnect takes the lock on its own
 account, the halves never overlap even when the outer call holds nothing, so the
 tests had to be rewritten to assert the lock's *hold depth* instead.
 
+### ATLAS-TASK-0009 — the `Clock` abstraction
+
+`atlas/common/clock.py`: a `Clock` protocol with two methods, a `SystemClock`
+that reads the host, and a `ManualClock` that moves only when told to. The first
+thing `atlas.common` has ever contained, and the first time any package has taken
+the dependency the architecture has permitted since ATLAS-TASK-0001.
+
+The port has **two hands because there are two questions**, and conflating them
+is the bug it exists to prevent. `now()` answers *when* — an aware UTC instant
+that goes into a `Connection` and that a person reads. `monotonic()` answers *how
+long ago*, and its differences are the only durations in the system that survive
+a clock correction. A wall-clock step forwards reports a healthy session as an
+hour silent; a step backwards makes the age negative, which compares as fresh
+against every threshold and silences a supervisor at the moment it exists for.
+
+That is what the two ways of moving a `ManualClock` encode. `advance` is time
+passing and moves both hands; `set_time` is the wall clock being *corrected* — an
+NTP step, an operator, a zone change — and credits no elapsed time at all. Tests
+for immunity to a clock step are only worth anything against a clock that can
+actually be stepped.
+
+`BaseBrokerAdapter` gained the measurement the port had been declining to provide:
+`heartbeat_age()` and `is_heartbeat_fresh(within)`. Neither stores a threshold,
+schedules anything or reconnects — `adapter.py` records that the port imposes no
+freshness policy, and that is still true. The policy is the supervisor's; only the
+measurement moved down. Both are on the base and **not** on the 31-method port,
+because widening a contract every adapter implements, for something the base gives
+all of them for free, is a breaking change that buys no capability.
+
+Injection is keyword-only and optional, so every existing `super().__init__()`
+kept working. `MT5BrokerAdapter` passes a clock through and defaults to the host,
+which is what production runs on. `MockBrokerAdapter` deliberately accepts **no**
+clock: it takes its venue's, because a mock holding a clock its venue does not is
+how a deterministic test stops being deterministic.
+
+[ADR-0008](adr/0008-time-is-injected.md) records the decision, including why
+`set_time` crediting elapsed time would have made every clock-step test pass
+against a clock with no such immunity.
+
+The lock rules from ADR-0007 constrained the implementation rather than being
+revisited by it: the clock is read *before* the readings lock in all three places
+that take it, because a clock arrives from outside the package and calling one
+under a leaf lock is how a leaf stops being one. Neither new method touches the
+session lock, so supervision is still never blocked.
+
+130 tests were added — 36 for the clock itself, 91 for heartbeat freshness across
+every discovered adapter, and 3 for the widened import rule. Nothing sleeps: a
+365-day silence is asserted as an exact `timedelta`. Two are structural. No module
+in `atlas.broker` may call the host clock directly, the same shape of assertion
+that keeps `threading` in one file; and `test_adapter_contract.py`'s "imports
+nothing but `atlas.broker`" was widened to name `atlas.common`, with the three
+new tests proving the widened rule still refuses `atlas.risk`,
+`atlas.execution`, `atlas.strategy` and `atlas.config`.
+
+A 17-mutant campaign killed 16 on the first run. The survivor was a gap rather
+than an equivalent mutant: `SystemClock.monotonic` returning a wall-clock
+timestamp satisfied every property the tests asserted, because a wall clock is
+also a float that does not go backwards within a run. It is killed now, by
+asserting where the reading comes from and that the two hands have unrelated
+origins. One equivalent mutant remains and is left alone — reading the venue
+clock's private instant instead of calling `now()` differs only by a lock
+acquisition on a value whose read is already atomic.
+
 ## Known documentation debt
 
 - **ADR-015 and ADR-016** were declared dependencies of ATLAS-TASK-0004 but do
-  not exist. `docs/adr/` currently ends at 0007.
+  not exist. `docs/adr/` currently ends at 0008.
 - **Version.** ATLAS-TASK-0004 was specified as `v0.2.0-alpha`; `pyproject.toml`
   and `README.md` still declare `v0.1.0-alpha`. A contract test ties the
   `atlas-core` image tag to `[project].version`, so a bump touches all three.

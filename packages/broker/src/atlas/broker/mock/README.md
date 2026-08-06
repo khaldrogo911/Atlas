@@ -64,8 +64,17 @@ the same `except` clause.
 
 Nothing here reads the host clock and nothing here is random.
 
-- The venue owns its clock. It starts at `DEFAULT_START` (2020-01-01 UTC) and
-  moves only when a test calls `set_time` or `advance`.
+- The venue owns its clock — a `ManualClock` from `atlas.common`, reachable as
+  `venue.clock`. It starts at `DEFAULT_START` (2020-01-01 UTC) and moves only
+  when a test calls `set_time` or `advance`.
+- The adapter runs on **that same clock object**, not a copy and not one of its
+  own; `MockBrokerAdapter` takes no `clock` argument for exactly that reason.
+  A heartbeat stamped in venue time and aged against any other source would have
+  an age that depended on how long the test took to run.
+- `advance` is time passing and moves both of the clock's hands; `set_time` is a
+  wall-clock correction and moves only the instant, crediting no elapsed time.
+  So a test can step the clock a day in either direction and the age of a
+  heartbeat does not change. ADR-0008 has the reasoning.
 - Identifiers are sequential from 1 per kind: `order-1`, `position-1`,
   `execution-1`, `tick-sub-1`, `candle-sub-1`. The same sequence of calls
   produces the same identifiers on every run and on every machine.

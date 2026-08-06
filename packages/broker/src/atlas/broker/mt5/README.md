@@ -108,6 +108,12 @@ API reports the offset, so it is configured on `MT5Config.server_utc_offset` and
 defaults to zero — correct only for a server that publishes UTC. A wrong non-zero
 guess would be worse than an explicit "not configured".
 
+Despite the name, `ServerClock` is **not** a source of time and has nothing to do
+with `atlas.common.clock`. It converts an instant the server sent; it never says
+what time it is. The instant this adapter stamps on a heartbeat comes from the
+`Clock` the base was given — `SystemClock` unless a test injects otherwise, which
+is what `MT5BrokerAdapter._now` returns. See ADR-0008.
+
 **Zero means absent.** MetaTrader 5 has no null. An unset stop loss, take profit
 or last-trade price arrives as `0.0`, which the domain models would accept as a
 real price of zero. `_optional_price` maps it back to `None`. The same convention

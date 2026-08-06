@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Final
 
 import pytest
 
+from atlas import common
 from atlas.broker import BrokerAdapter
 from atlas.broker import adapter as adapter_module
 
@@ -151,13 +152,39 @@ _EXCEPTION_NAME = re.compile(r"\b([A-Z]\w*Error)\b")
 
 #: ``threading`` is here for ``base.py`` alone: the synchronisation the port
 #: demands has to be implemented with something, and the standard library's
-#: locks are the smallest thing that does it. It stays out of
-#: FORBIDDEN_IMPORT_ROOTS below because it names no venue and opens no channel —
+#: locks are the smallest thing that does it. ``datetime`` is here for the same
+#: module, which reports a heartbeat's age as a ``timedelta``. Both stay out of
+#: FORBIDDEN_IMPORT_ROOTS below because they name no venue and open no channel —
 #: unlike ``socket`` and ``asyncio``, which are forbidden precisely because they
 #: would mean the port had started talking to something.
 PERMITTED_IMPORT_ROOTS: Final = frozenset(
-    {"__future__", "abc", "collections", "enum", "threading", "typing", "pydantic", "atlas"}
+    {
+        "__future__",
+        "abc",
+        "collections",
+        "datetime",
+        "enum",
+        "threading",
+        "typing",
+        "pydantic",
+        "atlas",
+    }
 )
+
+#: The only ``atlas`` packages a port module may import.
+#:
+#: ``atlas.broker`` is itself. ``atlas.common`` is admitted by ATLAS-TASK-0009,
+#: which put the :class:`~atlas.common.clock.Clock` port there because
+#: ``docs/architecture/overview.md`` assigns the clock to that package and
+#: declares it dependency-free and importable anywhere. That declaration is what
+#: makes the import safe: ``common`` imports no other ``atlas`` package, so it
+#: cannot carry a cycle back, and it encodes no domain rules, so it cannot
+#: smuggle a decision into the port.
+#:
+#: Every other ``atlas`` package is a layer *above* the port — ``risk``,
+#: ``execution``, ``strategy`` — and an import of one would invert the
+#: dependency the whole package structure exists to state.
+PERMITTED_ATLAS_PACKAGES: Final = ("atlas.broker", "atlas.common")
 
 FORBIDDEN_IMPORT_ROOTS: Final = frozenset(
     {
@@ -192,6 +219,18 @@ def _imported_roots(path: Path) -> Iterator[str]:
                 yield alias.name.split(".")[0]
         elif isinstance(node, ast.ImportFrom) and node.module is not None:
             yield node.module.split(".")[0]
+
+
+def _atlas_imports(path: Path) -> Iterator[str]:
+    """Yield the full module name of every ``from atlas... import`` in a file."""
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.ImportFrom)
+            and node.module is not None
+            and node.module.startswith("atlas")
+        ):
+            yield node.module
 
 
 def _port_class_node() -> ast.ClassDef:
@@ -455,17 +494,34 @@ class TestBrokerIndependence:
 
     @pytest.mark.parametrize("path", PORT_SOURCES, ids=lambda path: path.name)
     def test_no_module_depends_on_another_atlas_package(self, path: Path) -> None:
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        atlas_imports = [
-            node.module
-            for node in ast.walk(tree)
-            if isinstance(node, ast.ImportFrom)
-            and node.module is not None
-            and node.module.startswith("atlas")
+        for module in _atlas_imports(path):
+            assert module.startswith(PERMITTED_ATLAS_PACKAGES), f"{path.name} imports {module}"
+
+    def test_the_dependency_rule_still_rejects_a_layer_above_the_port(self) -> None:
+        # The rule above was widened to admit `atlas.common`. A rule that admits
+        # everything passes just as quietly, so this states what it still
+        # refuses: the packages that sit on top of the broker and would invert
+        # the dependency if the port reached for one.
+        for module in ("atlas.risk", "atlas.execution", "atlas.strategy", "atlas.config"):
+            assert not module.startswith(PERMITTED_ATLAS_PACKAGES)
+
+    def test_the_dependency_rule_admits_the_clock(self) -> None:
+        assert "atlas.common.clock".startswith(PERMITTED_ATLAS_PACKAGES)
+
+    def test_the_common_package_carries_no_atlas_dependency_of_its_own(self) -> None:
+        # What makes `atlas.common` safe for the port to import is that it
+        # imports nothing else under `atlas`, so admitting it cannot admit a
+        # cycle by proxy. Asserted here rather than assumed, because the
+        # exception above is granted on exactly this ground.
+        package = Path(inspect.getfile(common)).parent
+        offenders = [
+            f"{source.name} imports {module}"
+            for source in sorted(package.glob("*.py"))
+            for module in _atlas_imports(source)
+            if not module.startswith("atlas.common")
         ]
 
-        for module in atlas_imports:
-            assert module.startswith("atlas.broker"), f"{path.name} imports {module}"
+        assert not offenders
 
     def test_the_permitted_and_forbidden_sets_do_not_overlap(self) -> None:
         assert not (PERMITTED_IMPORT_ROOTS & FORBIDDEN_IMPORT_ROOTS)

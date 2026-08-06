@@ -24,7 +24,7 @@ exist to keep them true as the codebase grows.
 
 ### Status
 
-Last completed: **ATLAS-TASK-0006 — `MockBrokerAdapter`**. See
+Last completed: **ATLAS-TASK-0009 — the `Clock` abstraction**. See
 [`docs/ROADMAP.md`](docs/ROADMAP.md) for the full task tracker.
 
 The engineering foundation is complete and enforced: dependency management,
@@ -46,6 +46,19 @@ including the seven MetaTrader 5 cannot. It is what tests hold instead of a
 mocked interface, and it is what demonstrates the contract is not shaped around
 one vendor. It simulates a venue's bookkeeping and deliberately not its market —
 see [ADR-0006](docs/adr/0006-mock-adapter-simulates-bookkeeping-not-price.md).
+
+Both adapters sit on `BaseBrokerAdapter` (TASK-0007), which owns the session
+bookkeeping, the lifecycle and the two locks that make an adapter safe to hold
+from a strategy thread, a risk thread and a supervisor at once (TASK-0008) —
+see [ADR-0007](docs/adr/0007-two-locks-in-the-base-adapter.md). A supervisor is
+never blocked by an in-flight connect, which is the one moment it exists for.
+
+`atlas.common` has its first contents: the `Clock` port (TASK-0009), injected
+into the base so that a heartbeat's age is measured on a monotonic reading rather
+than a wall clock that an NTP step can move in either direction — see
+[ADR-0008](docs/adr/0008-time-is-injected.md). It is also what lets a test for a
+one-hour timeout advance an hour and assert an exact `timedelta` instead of
+waiting one.
 
 **No trading logic exists yet.** Every other package below is an importable
 unit with a documented responsibility and no implementation, by design.
@@ -146,7 +159,7 @@ atlas/
 │   └── research/                backtesting and experiment workbench
 │
 ├── packages/                    libraries, one responsibility each
-│   ├── common/                  dependency-free primitives
+│   ├── common/                  dependency-free primitives  (clock)
 │   ├── config/                  layered configuration  (implemented)
 │   ├── events/                  event contracts and message bus
 │   ├── broker/                  vendor-neutral broker port

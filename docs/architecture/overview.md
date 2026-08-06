@@ -33,6 +33,15 @@ market ──▶ features ──▶ regime ─┐
 importable anywhere. `learning` runs offline and is never imported by the live
 path.
 
+`common` holds one thing so far, and it is the first exercise of that rule:
+`atlas.common.clock` — a `Clock` port with a wall hand and a monotonic hand, a
+`SystemClock` that reads the host and a `ManualClock` for tests. `atlas.broker`
+imports it, which is the only edge between two feature packages in the graph
+today. It runs in the permitted direction, and `tests/unit/broker/test_adapter_contract.py`
+asserts both halves: that `atlas.broker` may reach `atlas.common`, and that it
+still may not reach anything above the port. See
+[ADR 0008](../adr/0008-time-is-injected.md).
+
 ## Package responsibilities
 
 | Package | Owns | Must not |

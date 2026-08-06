@@ -55,6 +55,7 @@ from atlas.broker.models import (
     Position,
     PositionSide,
 )
+from atlas.common.clock import ManualClock
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -244,7 +245,7 @@ class MockVenue:
         """
         self.latency_ms: float = DEFAULT_LATENCY_MS
         self._account = account
-        self._now = self._require_aware(now, "now")
+        self._clock = ManualClock(self._require_aware(now, "now"))
         self._symbols: dict[str, Symbol] = {}
         self._quotes: dict[str, Tick] = {}
         self._bars: dict[tuple[str, Timeframe], list[Candle]] = {}
@@ -344,6 +345,19 @@ class MockVenue:
 
     # --- Clock ----------------------------------------------------------------
 
+    @property
+    def clock(self) -> ManualClock:
+        """The venue's clock, which its adapter also runs on.
+
+        A :class:`~atlas.common.clock.ManualClock`, so it moves only when this
+        venue's :meth:`advance` or :meth:`set_time` moves it. Exposed because
+        :class:`~atlas.broker.mock.adapter.MockBrokerAdapter` hands it to
+        :class:`~atlas.broker.base.BaseBrokerAdapter` as *its* clock: one notion
+        of now for the venue and the adapter in front of it, rather than two
+        that can disagree about how long ago a heartbeat was.
+        """
+        return self._clock
+
     def now(self) -> datetime:
         """Return the venue's current time.
 
@@ -351,7 +365,7 @@ class MockVenue:
             The venue clock, aware and in UTC. Nothing in this package reads the
             host clock, so this is the only notion of "now" the mock has.
         """
-        return self._now
+        return self._clock.now()
 
     def set_time(self, moment: datetime) -> None:
         """Move the venue clock to an instant.
@@ -361,8 +375,14 @@ class MockVenue:
 
         Raises:
             ValueError: If ``moment`` is naive.
+
+        Notes:
+            A jump rather than time passing, which is the distinction
+            :class:`~atlas.common.clock.ManualClock` draws: this moves what the
+            venue calls "now" and credits no elapsed time, so a heartbeat's age
+            is unaffected. Use :meth:`advance` to make time pass.
         """
-        self._now = self._require_aware(moment, "moment")
+        self._clock.set_time(self._require_aware(moment, "moment"))
 
     def advance(self, delta: timedelta) -> datetime:
         """Move the venue clock forwards.
@@ -377,12 +397,16 @@ class MockVenue:
             ValueError: If ``delta`` is negative. A clock that runs backwards
                 produces orders that were updated before they were created, and
                 the domain model rejects those several steps later.
+
+        Notes:
+            Time passing, so a heartbeat recorded before this call is exactly
+            ``delta`` older after it. That is what makes a test for a timeout
+            measured in hours run instantly and assert an exact number.
         """
         if delta.total_seconds() < 0:
             msg = f"delta must not be negative; got {delta!r}"
             raise ValueError(msg)
-        self._now += delta
-        return self._now
+        return self._clock.advance(delta)
 
     # --- Account --------------------------------------------------------------
 
@@ -625,8 +649,8 @@ class MockVenue:
             price=working_price,
             stop_price=request.stop_price,
             status=OrderStatus.PENDING,
-            created_at=self._now,
-            updated_at=self._now,
+            created_at=self.now(),
+            updated_at=self.now(),
         )
         self._orders[order.order_id] = order
         return order
@@ -663,7 +687,7 @@ class MockVenue:
             raise ValueError(msg)
 
         self._orders[order_id] = _revised(
-            order, {"status": OrderStatus.FILLED, "updated_at": self._now}
+            order, {"status": OrderStatus.FILLED, "updated_at": self.now()}
         )
         position = Position(
             position_id=self._next_id("position"),
@@ -675,7 +699,7 @@ class MockVenue:
             profit=Decimal(0),
             swap=Decimal(0),
             commission=Decimal(0),
-            opened_at=self._now,
+            opened_at=self.now(),
         )
         self._positions[position.position_id] = position
         return self._book(order_id, order.symbol, price, order.volume)
@@ -722,8 +746,8 @@ class MockVenue:
             volume=closing,
             price=price,
             status=OrderStatus.FILLED,
-            created_at=self._now,
-            updated_at=self._now,
+            created_at=self.now(),
+            updated_at=self.now(),
         )
         self._orders[order.order_id] = order
 
@@ -761,7 +785,7 @@ class MockVenue:
             volume=volume,
             commission=Decimal(0),
             swap=Decimal(0),
-            timestamp=self._now,
+            timestamp=self.now(),
         )
         self._executions.append(execution)
         return execution
@@ -785,7 +809,7 @@ class MockVenue:
         if order.status.is_terminal:
             msg = f"order {order_id!r} is already {order.status} and cannot be cancelled"
             raise ValueError(msg)
-        cancelled = _revised(order, {"status": OrderStatus.CANCELLED, "updated_at": self._now})
+        cancelled = _revised(order, {"status": OrderStatus.CANCELLED, "updated_at": self.now()})
         self._orders[order_id] = cancelled
         return cancelled
 
@@ -817,7 +841,7 @@ class MockVenue:
                 object's.
         """
         order = self.require_order(order_id)
-        revised = _revised(order, {**updates, "updated_at": self._now})
+        revised = _revised(order, {**updates, "updated_at": self.now()})
         self._orders[order_id] = revised
         return revised
 

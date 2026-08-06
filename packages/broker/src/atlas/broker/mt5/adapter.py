@@ -62,7 +62,6 @@ every one of those methods' ``Raises:`` contracts.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Final
 
 from atlas.broker.base import BaseBrokerAdapter
@@ -84,6 +83,7 @@ from atlas.broker.types import UNSET
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
+    from datetime import datetime
 
     from atlas.broker.models import (
         Account,
@@ -118,6 +118,7 @@ if TYPE_CHECKING:
         TickHandler,
         Unset,
     )
+    from atlas.common.clock import Clock
 
 __all__ = ["MT5BrokerAdapter"]
 
@@ -162,11 +163,18 @@ class MT5BrokerAdapter(BaseBrokerAdapter):
     :meth:`is_connected` and :meth:`health` — is inherited from
     :class:`~atlas.broker.base.BaseBrokerAdapter`, and so is the locking around
     the session lifecycle. What is MetaTrader 5's alone stays here: where the
-    state lives (on the session), which clock stamps a heartbeat (the host's),
-    and that connecting re-reads the brokerage name.
+    state lives (on the session), which clock stamps a heartbeat (the host's,
+    which is the base's default and what this adapter takes), and that
+    connecting re-reads the brokerage name.
     """
 
-    def __init__(self, config: MT5Config, *, session: MT5Session | None = None) -> None:
+    def __init__(
+        self,
+        config: MT5Config,
+        *,
+        session: MT5Session | None = None,
+        clock: Clock | None = None,
+    ) -> None:
         """Build an adapter that is not yet connected.
 
         Args:
@@ -174,23 +182,36 @@ class MT5BrokerAdapter(BaseBrokerAdapter):
             session: Session to use. Defaults to one built from ``config``.
                 Injected so that a test supplies a session wired to a stub
                 terminal and the MetaTrader5 package is never imported.
+            clock: Where the adapter gets the time. Defaults to
+                :class:`~atlas.common.clock.SystemClock`, which is the host's
+                and is what production runs on — this adapter talks to a real
+                venue, and the instant it stamps is the instant Atlas observed
+                one. Injected for the same reason ``session`` is: a test that
+                needs "now" to be a fixed point, or needs an hour to pass,
+                supplies a :class:`~atlas.common.clock.ManualClock` rather than
+                patching a module or waiting.
+
+        Notes:
+            Not to be confused with ``session.clock``, which is a
+            :class:`~atlas.broker.mt5.connection.ServerClock` — a converter
+            between the trade server's zone and UTC, not a source of time.
         """
-        super().__init__()
+        super().__init__(clock=clock)
         self._session = session if session is not None else MT5Session(config)
         self._broker_name: str = _UNKNOWN_BROKER
 
     # --- Internals ------------------------------------------------------------
 
-    @staticmethod
-    def _now() -> datetime:
-        """Return the host's current time, aware and in UTC.
+    def _now(self) -> datetime:
+        """Return the current time, aware and in UTC.
 
         Returns:
-            The observation time to stamp a snapshot with. The host's clock, not
-            the venue's: it records when Atlas saw the value, which is a fact
-            Atlas can actually establish.
+            The observation time to stamp a snapshot with. From the adapter's
+            clock, which by default is the host's rather than the venue's: it
+            records when Atlas saw the value, which is a fact Atlas can actually
+            establish.
         """
-        return datetime.now(UTC)
+        return self._clock.now()
 
     def _terminal(self) -> Terminal:
         """Return the live terminal handle.

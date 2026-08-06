@@ -90,6 +90,33 @@ two adapters driven from two threads against one shared
 protect. That is a property of the test double, not of the port; the guarantee
 here is per adapter.
 
+Heartbeat freshness
+-------------------
+The port records *when* the venue was last heard from and deliberately declines
+to say how old is too old — a scalper's tolerance and an end-of-day process's
+are different numbers, and neither belongs to an adapter. What was missing was
+the other half: a caller that wanted the age had to subtract
+``health().last_heartbeat`` from its own clock, which is a different clock from
+the one the reading was stamped with. Against a mock stamping venue time that
+subtraction is meaningless, and against a live host it is a wall-clock
+difference — the one arithmetic an NTP correction or a daylight-saving step
+silently corrupts.
+
+:meth:`BaseBrokerAdapter.heartbeat_age` and
+:meth:`BaseBrokerAdapter.is_heartbeat_fresh` answer it from the adapter's own
+clock, and they answer it from the *monotonic* hand rather than the wall one.
+Every heartbeat is recorded twice: the instant, which is what
+:class:`~atlas.broker.models.Connection` reports and a person reads, and a
+monotonic reading, which is what the age is computed from and which no clock
+correction can move. The threshold stays the caller's — these take it as an
+argument and hold no policy of their own.
+
+Neither method takes the session lock, for the reason
+:meth:`BaseBrokerAdapter.health` does not: they exist for a supervisor, and a
+supervisor's question must still be answerable while a connect is stuck. Both
+read the clock *before* taking the readings lock, which is what keeps that lock
+a leaf.
+
 What it deliberately does not own
 ---------------------------------
 **Connecting.** :meth:`~atlas.broker.adapter.BrokerAdapter.connect` and
@@ -102,11 +129,15 @@ lifecycle runs and a subclass owns *what* it does: the public methods here take
 the lock and delegate to :meth:`_connect`, :meth:`_disconnect` and
 :meth:`_reconnect`.
 
-**The clock.** The base holds *when* the venue was last heard from and never
-decides what time it is. MetaTrader 5 stamps the host clock, because the fact it
-records is when Atlas observed the terminal; the mock stamps its own venue
-clock, because determinism is the reason that adapter exists. A base that read a
-clock would have to pick one and would be wrong for the other.
+**Which clock is authoritative.** The base still never decides what time it is.
+It is *given* a :class:`~atlas.common.clock.Clock` and defaults to the host's
+only when a subclass supplies nothing. MetaTrader 5 takes that default, because
+the fact it records is when Atlas observed the terminal; the mock hands over its
+venue's clock, because determinism is the reason that adapter exists. A base
+that *read* a clock would have to pick one and would be wrong for the other; a
+base that is *handed* one is wrong for neither, and gains the thing a hardcoded
+:func:`datetime.now` cannot have — a test for a one-hour timeout that takes no
+time to run.
 
 **The not-connected guard.** Both adapters refuse a request that has no session,
 and they refuse it in structurally different places: the mock checks on entry to
@@ -122,14 +153,17 @@ from __future__ import annotations
 
 import threading
 from abc import abstractmethod
+from datetime import timedelta
 from typing import TYPE_CHECKING
 
 from atlas.broker.adapter import BrokerAdapter
 from atlas.broker.models import Connection
+from atlas.common.clock import SystemClock
 
 if TYPE_CHECKING:
     from atlas.broker.models import ConnectionState, LatencyMilliseconds, Timestamp
     from atlas.broker.types import BrokerName, ServerName
+    from atlas.common.clock import Clock
 
 __all__ = ["BaseBrokerAdapter"]
 
@@ -147,9 +181,11 @@ class BaseBrokerAdapter(BrokerAdapter):
     the same protection the port itself provides.
 
     Notes:
-        A subclass must call ``super().__init__()``. Both locks and both cached
-        readings are created there, and an adapter that skips it fails on its
-        first :meth:`connect` call rather than at construction.
+        A subclass must call ``super().__init__()``. Both locks, the clock and
+        the cached readings are created there, and an adapter that skips it
+        fails on its first :meth:`connect` call rather than at construction.
+        The call takes no positional arguments and its one keyword argument is
+        optional, so an existing ``super().__init__()`` keeps working unchanged.
 
         No subclass writes a lock. The lifecycle hooks run with the session lock
         already held, and the readings are reached through :meth:`_record_latency`,
@@ -158,23 +194,38 @@ class BaseBrokerAdapter(BrokerAdapter):
         there is nowhere to put it.
     """
 
-    def __init__(self) -> None:
-        """Build the locks and start with no session readings.
+    def __init__(self, *, clock: Clock | None = None) -> None:
+        """Build the locks and the clock, and start with no session readings.
+
+        Args:
+            clock: Where this adapter gets the time. Defaults to
+                :class:`~atlas.common.clock.SystemClock`, the host's, which is
+                what a real venue adapter wants: the fact being recorded is when
+                *Atlas* observed the venue. An adapter whose venue owns its own
+                notion of time passes that clock instead, which is how the mock
+                stays deterministic. Keyword-only, because a subclass reading
+                ``super().__init__(something)`` should have to say what the
+                something is.
 
         Notes:
-            Both readings are ``None`` rather than zero, and the distinction is
+            The readings are ``None`` rather than zero, and the distinction is
             the point: a latency of ``0.0`` claims a measurement was taken and
             came back instant, which is a different statement from never having
             measured.
 
             The locks are per instance, not per class. Two adapters pointed at
             two venues have no reason to queue behind each other, and a class
-            level lock would make every adapter in the process share one.
+            level lock would make every adapter in the process share one. The
+            clock is per instance for the same reason and the opposite effect:
+            two adapters may deliberately share one, and passing the same
+            instance to both is how that is said.
         """
+        self._clock: Clock = SystemClock() if clock is None else clock
         self._session_lock = threading.RLock()
         self._readings_lock = threading.Lock()
         self._last_latency_ms: LatencyMilliseconds | None = None
         self._last_heartbeat: Timestamp | None = None
+        self._last_heartbeat_reading: float | None = None
 
     # --- What a subclass supplies ---------------------------------------------
 
@@ -371,13 +422,28 @@ class BaseBrokerAdapter(BrokerAdapter):
 
         Args:
             at: The observation time, from whichever clock the adapter has
-                decided is authoritative.
+                decided is authoritative. Still passed in rather than taken
+                from :attr:`_clock`, because an adapter that learns the instant
+                from the venue's own answer should record *that*, not the
+                moment it got around to writing it down.
 
         Returns:
             Nothing.
+
+        Notes:
+            A monotonic reading is taken alongside the instant, and it is what
+            :meth:`heartbeat_age` measures from. The instant answers "when",
+            which is what :class:`~atlas.broker.models.Connection` reports; the
+            monotonic reading answers "how long ago", which a wall clock cannot
+            be trusted with across a correction.
+
+            The clock is read *before* the lock is taken, so nothing is called
+            while the readings lock is held and it stays a leaf.
         """
+        reading = self._clock.monotonic()
         with self._readings_lock:
             self._last_heartbeat = at
+            self._last_heartbeat_reading = reading
 
     def _record_latency(self, latency_ms: LatencyMilliseconds, *, at: Timestamp) -> None:
         """Record a round-trip measurement and the heartbeat that comes with it.
@@ -394,10 +460,15 @@ class BaseBrokerAdapter(BrokerAdapter):
             from the venue and the two facts have the same instant. Writing them
             under one acquisition also means no reader can see the new latency
             beside the old heartbeat.
+
+            The monotonic reading is taken with them and before the lock, for
+            the reasons on :meth:`_record_heartbeat`.
         """
+        reading = self._clock.monotonic()
         with self._readings_lock:
             self._last_latency_ms = latency_ms
             self._last_heartbeat = at
+            self._last_heartbeat_reading = reading
 
     def _clear_session_readings(self) -> None:
         """Forget the latency and heartbeat a closing session left behind.
@@ -410,10 +481,15 @@ class BaseBrokerAdapter(BrokerAdapter):
             longer exists, and a stale measurement presented as current is what
             makes a supervision dashboard actively misleading — it reports a
             healthy latency for a venue nothing can reach.
+
+            The heartbeat's monotonic reading goes with it, so
+            :meth:`heartbeat_age` reports ``None`` — never heard from — rather
+            than an age measured against a session that has gone.
         """
         with self._readings_lock:
             self._last_latency_ms = None
             self._last_heartbeat = None
+            self._last_heartbeat_reading = None
 
     def is_connected(self) -> bool:
         """Report whether a session is established, without a round trip.
@@ -450,3 +526,60 @@ class BaseBrokerAdapter(BrokerAdapter):
             asked at that moment rather than a stale one.
         """
         return self._connection()
+
+    def heartbeat_age(self) -> timedelta | None:
+        """Report how long ago the venue was last heard from.
+
+        Returns:
+            The elapsed time since the last recorded heartbeat, or ``None`` if
+            there has not been one — because the adapter has never connected, or
+            because a disconnect cleared the readings. ``None`` is not zero and
+            not infinity: it is the absence of a measurement, and a caller that
+            treats it as either is deciding a policy this method declines to.
+
+        Notes:
+            Measured from the clock's monotonic hand, not from
+            ``health().last_heartbeat``. Subtracting two wall-clock readings
+            gives an answer a system clock correction can move by hours in
+            either direction, and the direction that matters is the one that
+            reports a dead session as fresh.
+
+            Local and cheap, never a round trip, and never raises. Takes no
+            session lock, so a supervisor still gets an answer while a connect
+            is parked inside an unresponsive venue — which is exactly when the
+            age of the last heartbeat is the question worth asking.
+        """
+        reading = self._clock.monotonic()
+        with self._readings_lock:
+            recorded = self._last_heartbeat_reading
+        if recorded is None:
+            return None
+        return timedelta(seconds=reading - recorded)
+
+    def is_heartbeat_fresh(self, within: timedelta) -> bool:
+        """Report whether the venue has been heard from recently enough.
+
+        Args:
+            within: The caller's tolerance. A heartbeat exactly this old is
+                still fresh: the boundary is inclusive, so a supervisor polling
+                on its own timeout does not fail on the tick it was scheduled
+                for.
+
+        Returns:
+            ``True`` if a heartbeat has been recorded and its age is at most
+            ``within``.
+
+        Notes:
+            Having never heard from the venue is reported as *not* fresh. The
+            alternative — treating the absence of a measurement as satisfying
+            any threshold — makes an adapter that has never connected look
+            healthy to the first thing that asks, and this predicate exists for
+            supervision, where the safe direction is to answer ``False`` and let
+            the caller establish otherwise.
+
+            The threshold is the caller's and is not remembered. An adapter
+            holding a freshness policy would be answering a question about the
+            strategy above it, and the port is explicit that it does not.
+        """
+        age = self.heartbeat_age()
+        return age is not None and age <= within

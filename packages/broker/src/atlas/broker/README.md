@@ -52,9 +52,13 @@ convention:
 1. **Return types are domain models.** Never a dict, never `Any`, never a
    vendor object. A `dict` return type is how a typed contract quietly becomes
    a bag of strings whose keys differ per venue.
-2. **The port imports nothing but `atlas.broker`.** No SDK, no HTTP client, no
-   socket, no database. `test_adapter_contract.py` walks the AST of every
-   module here and fails on anything outside a permitted set.
+2. **The port imports nothing but `atlas.broker` and `atlas.common`.** No SDK,
+   no HTTP client, no socket, no database, and nothing from a layer above —
+   `atlas.risk`, `atlas.strategy` and `atlas.execution` are all refused, which is
+   what keeps the dependency pointing the way it does. `atlas.common` is
+   permitted because it is dependency-free by construction and importable
+   anywhere; `base.py` takes it for the `Clock` port. `test_adapter_contract.py`
+   walks the AST of every module here and fails on anything outside that set.
 3. **Errors are the port's own.** An implementation translates whatever the
    venue raised into the `BrokerError` hierarchy in `exceptions.py`, which every
    `Raises:` clause in `adapter.py` names. Callers handle Atlas exceptions; a
@@ -148,11 +152,19 @@ ATLAS-TASK-0008 added the synchronisation, and that moved the lifecycle itself
 up with it — `connect`, `disconnect` and `reconnect` are the base's own methods
 now, each taking the session lock and delegating to a hook. A subclass answers
 six members in all: three properties saying where its state lives and who is at
-the far end, and three hooks that run with the lock already held. The choice of
-clock and the not-connected guard stay in the adapters, because the two
-implementations do each of those differently for venue-specific reasons —
-`base.py`'s module docstring names each one, and ADR-0007 records the
-concurrency contract in full. Retry policy is still unimplemented anywhere.
+the far end, and three hooks that run with the lock already held.
+
+ATLAS-TASK-0009 added the clock. The base takes an optional `clock` and defaults
+to `SystemClock`, so an adapter that stamps instants uses `self._clock.now()`
+rather than reading the host — a rule a test enforces, by scanning this package
+for a direct call to one. With a clock to measure against, `heartbeat_age()` and
+`is_heartbeat_fresh(within)` became answerable and moved up too. Neither stores a
+threshold: the measurement belongs here and the policy does not. What each adapter
+still decides for itself is *which* clock it runs on — MT5 takes the host's, the
+mock takes its venue's, which is what makes it deterministic — and where the
+not-connected guard sits. `base.py`'s module docstring names each difference,
+ADR-0007 records the concurrency contract and ADR-0008 the clock. Retry policy is
+still unimplemented anywhere.
 
 It is deliberately not exported from `atlas.broker`. This package's namespace is
 what a *caller* depends on, and a caller has no use for a base class; an adapter
