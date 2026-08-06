@@ -14,6 +14,7 @@ the history of the system's reasoning stays intact.
 | [0003](0003-layered-configuration.md) | Layered TOML configuration with environment overlay | Accepted |
 | [0004](0004-strict-typing-and-linting.md) | Strict typing and linting from the first commit | Accepted |
 | [0005](0005-polyglot-persistence.md) | PostgreSQL, Redis and DuckDB for three distinct jobs | Accepted |
+| [0006](0006-mock-adapter-simulates-bookkeeping-not-price.md) | The mock adapter simulates bookkeeping, not price | Accepted |
 
 ## Writing one
 

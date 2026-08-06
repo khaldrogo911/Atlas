@@ -17,7 +17,7 @@ and in package documentation. This file is where they resolve to a status.
 | ATLAS-TASK-0003 | The `BrokerAdapter` port | ✅ Complete | `4c7a9d7` |
 | ATLAS-TASK-0004 | MetaTrader 5 broker adapter (demo foundation) | ✅ Complete | `36fa3e3` |
 | ATLAS-TASK-0005 | Broker exception hierarchy | ✅ Complete | `a07dcea` |
-| ATLAS-TASK-0006 | `MockBrokerAdapter` | ⬜ Not started | — |
+| ATLAS-TASK-0006 | `MockBrokerAdapter` | ✅ Complete | `PENDING` |
 | ATLAS-TASK-0007 | `BaseBrokerAdapter` | ⬜ Not started | — |
 
 Nothing beyond ATLAS-TASK-0007 is defined. The tasks above are the ones the
@@ -92,14 +92,38 @@ No trading behaviour was added. The four trading methods still refuse, now
 naming what is actually missing — filling mode per instrument, a deviation
 policy, and a read-back of the resulting deals — rather than the hierarchy.
 
-## Next
-
 ### ATLAS-TASK-0006 — `MockBrokerAdapter`
 
-A second implementation of the port. This is what proves the contract is not
-shaped around MetaTrader 5, and it is what tests use instead of mocking
-`BrokerAdapter` — a mock agrees with whatever the test asserts, including the
-wrong thing.
+The port's second implementation: `atlas/broker/mock/`, a `MockVenue` holding
+state in memory and a `MockBrokerAdapter` implementing all 31 methods against
+it. Every method that MetaTrader 5 cannot honour is honoured here — the four
+trading methods, both subscribe methods, and `server_time` — which is the
+evidence the contract was designed against a specification rather than around a
+vendor.
+
+The venue owns the state and the adapter owns the session, so a test asserting
+through `adapter.venue` and a test asserting through the port's read methods are
+two independent readings that can disagree. The venue signals misuse with
+`ValueError` and never with a `BrokerError`, so a test's own bug cannot be
+swallowed by the error handling it is exercising.
+
+Deterministic by construction: its own clock from 2020-01-01 UTC, sequential
+identifiers from 1, no randomness, no read of the host clock.
+
+The simulation boundary is the decision, and it is recorded in
+[ADR-0006](adr/0006-mock-adapter-simulates-bookkeeping-not-price.md). A market
+order fills at the published quote; nothing else happens on its own. No resting
+order triggers on price, no position is revalued, the account does not respond
+to trading. An attached `stop_loss` or `take_profit` is *refused* rather than
+ignored, because `Position` has nowhere to report one and a silent no-op would
+hide the gap for exactly as long as the position is open.
+
+`tests/unit/broker/test_adapter_conformance.py` arrived with it: it discovers
+every concrete `BrokerAdapter` in the package by walking it, and holds all of
+them — not just this one — to identical signatures and the five capability
+protocols.
+
+## Next
 
 ### ATLAS-TASK-0007 — `BaseBrokerAdapter`
 
@@ -111,7 +135,7 @@ reconnect to and should not inherit the concept.
 ## Known documentation debt
 
 - **ADR-015 and ADR-016** were declared dependencies of ATLAS-TASK-0004 but do
-  not exist. `docs/adr/` currently ends at 0005.
+  not exist. `docs/adr/` currently ends at 0006.
 - **Version.** ATLAS-TASK-0004 was specified as `v0.2.0-alpha`; `pyproject.toml`
   and `README.md` still declare `v0.1.0-alpha`. A contract test ties the
   `atlas-core` image tag to `[project].version`, so a bump touches all three.

@@ -195,6 +195,27 @@ decision for its own ADR rather than a detail of this one.
 ## Testing against the port
 
 Do not mock `BrokerAdapter`. A mock agrees with whatever the test asserts,
-including the wrong thing. Use the mock adapter (ATLAS-TASK-0006), which is a
-real implementation of the same interface and is bound by the same contract
-tests as every other adapter.
+including the wrong thing, and a suite built on one keeps passing on the day an
+adapter's real behaviour changes underneath it.
+
+Use `atlas.broker.mock` instead:
+
+```python
+from atlas.broker.mock import MockBrokerAdapter
+
+adapter = MockBrokerAdapter()
+adapter.venue.add_symbol(eurusd)
+adapter.venue.publish_tick(quote)
+adapter.connect()
+```
+
+It is a real implementation of this interface, held to identical signatures and
+the same five capability protocols as every other adapter by
+`tests/unit/broker/test_adapter_conformance.py`. It is deterministic — its own
+clock, sequential identifiers, no randomness — and its `MockVenue` is what the
+test drives while the code under test sees only the port.
+
+It simulates a venue's bookkeeping and deliberately not its market: a market
+order fills at the published quote, and nothing else happens on its own. A test
+that needs a resting order to fill names the price. See
+`mock/README.md` and ADR-0006 for the full boundary.

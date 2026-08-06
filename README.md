@@ -24,7 +24,7 @@ exist to keep them true as the codebase grows.
 
 ### Status
 
-Last completed: **ATLAS-TASK-0005 — Broker Exception Hierarchy**. See
+Last completed: **ATLAS-TASK-0006 — `MockBrokerAdapter`**. See
 [`docs/ROADMAP.md`](docs/ROADMAP.md) for the full task tracker.
 
 The engineering foundation is complete and enforced: dependency management,
@@ -39,6 +39,13 @@ hierarchy every adapter translates its venue's failures into (TASK-0005). The
 remaining seven methods raise `NotImplementedError` naming the MT5 capability
 that is missing. `MetaTrader5` is an optional Windows-marked extra imported
 inside one function, so nothing outside `atlas.broker.mt5` depends on it.
+
+The port now has a second implementation: `atlas.broker.mock` (TASK-0006), an
+in-memory venue and a deterministic adapter satisfying all 31 methods,
+including the seven MetaTrader 5 cannot. It is what tests hold instead of a
+mocked interface, and it is what demonstrates the contract is not shaped around
+one vendor. It simulates a venue's bookkeeping and deliberately not its market —
+see [ADR-0006](docs/adr/0006-mock-adapter-simulates-bookkeeping-not-price.md).
 
 **No trading logic exists yet.** Every other package below is an importable
 unit with a documented responsibility and no implementation, by design.

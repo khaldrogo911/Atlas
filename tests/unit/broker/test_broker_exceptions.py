@@ -148,6 +148,8 @@ OWN_CONSTRUCTORS: Final = tuple(
 #: tells a caller to write an ``except`` branch that can never be entered.
 DOCUMENTED_SOURCES: Final[tuple[Path, ...]] = (
     BROKER_DIR / "adapter.py",
+    BROKER_DIR / "mock" / "adapter.py",
+    BROKER_DIR / "mock" / "venue.py",
     BROKER_DIR / "mt5" / "adapter.py",
     BROKER_DIR / "mt5" / "connection.py",
     BROKER_DIR / "mt5" / "mapper.py",

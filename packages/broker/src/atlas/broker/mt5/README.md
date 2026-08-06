@@ -140,6 +140,10 @@ Two further rules:
 Seven of the port's thirty-one methods raise `NotImplementedError`. None is a
 placeholder that could have been filled with a plausible value.
 
+All seven are satisfied by `atlas.broker.mock` (ATLAS-TASK-0006), which is the
+evidence that they are limitations of this venue and of the work not yet scoped
+against it — not defects in the contract.
+
 ### Trading — not scoped to a task
 
 `place_order`, `modify_order`, `cancel_order`, `close_position`.
@@ -264,7 +268,6 @@ Two mappings are worth stating because they are judgement calls:
 
 | Task | What it changes here |
 | --- | --- |
-| **ATLAS-TASK-0006** — `MockBrokerAdapter` | Gives the port a second implementation, which is what proves the contract is not shaped around MetaTrader 5 |
 | **ATLAS-TASK-0007** — `BaseBrokerAdapter` | Takes over thread safety, and any retry or reconnection policy, from every adapter including this one |
 | *(unscheduled)* — trading | `order_send` behind the four trading methods: filling mode per instrument, a deviation policy, and reading deals back to report the price a fill actually got |
 | *(unscheduled)* — streaming | A polling loop behind `subscribe_ticks` and `subscribe_candles`, or a decision that this venue does not stream |
