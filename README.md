@@ -24,7 +24,7 @@ exist to keep them true as the codebase grows.
 
 ### Status
 
-Last completed: **ATLAS-TASK-0009 — the `Clock` abstraction**. See
+Last completed: **ATLAS-TASK-0010 — the retry and reconnection policy**. See
 [`docs/ROADMAP.md`](docs/ROADMAP.md) for the full task tracker.
 
 The engineering foundation is complete and enforced: dependency management,
@@ -59,6 +59,16 @@ than a wall clock that an NTP step can move in either direction — see
 [ADR-0008](docs/adr/0008-time-is-injected.md). It is also what lets a test for a
 one-hour timeout advance an hour and assert an exact `timedelta` instead of
 waiting one.
+
+`RetryPolicy` joined it (TASK-0010): a frozen value describing how many attempts
+and how long between, executed against the injected clock and wired into
+`BaseBrokerAdapter`, so `connect` and `reconnect` survive a dropped socket
+without either adapter writing a loop. The default is one attempt — retrying is
+opted into, because the only symptom of a wrongly retried call is that it took
+longer to fail. Which failures are worth another go is read off the exception
+hierarchy rather than from a list, so a refused credential still fails at the
+first attempt — see
+[ADR-0009](docs/adr/0009-retry-is-a-value-and-the-waiting-is-the-clocks.md).
 
 **No trading logic exists yet.** Every other package below is an importable
 unit with a documented responsibility and no implementation, by design.
@@ -159,7 +169,7 @@ atlas/
 │   └── research/                backtesting and experiment workbench
 │
 ├── packages/                    libraries, one responsibility each
-│   ├── common/                  dependency-free primitives  (clock)
+│   ├── common/                  dependency-free primitives  (clock, retry)
 │   ├── config/                  layered configuration  (implemented)
 │   ├── events/                  event contracts and message bus
 │   ├── broker/                  vendor-neutral broker port

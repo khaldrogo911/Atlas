@@ -162,9 +162,17 @@ for a direct call to one. With a clock to measure against, `heartbeat_age()` and
 threshold: the measurement belongs here and the policy does not. What each adapter
 still decides for itself is *which* clock it runs on — MT5 takes the host's, the
 mock takes its venue's, which is what makes it deterministic — and where the
-not-connected guard sits. `base.py`'s module docstring names each difference,
-ADR-0007 records the concurrency contract and ADR-0008 the clock. Retry policy is
-still unimplemented anywhere.
+not-connected guard sits.
+
+ATLAS-TASK-0010 added the retry policy, on the same terms. The base takes an
+optional `retry: RetryPolicy` and defaults to `RetryPolicy.none()`, so nothing
+retries unless it was told to; `connect` and `reconnect` route their hook through
+it and `disconnect` does not, because cleanup that retries is a shutdown that
+hangs. A lifecycle hook is therefore **one attempt** — it must be safe to call
+again, and must leave the session in a state the next attempt can start from.
+Neither adapter implements any of it; both accept the keyword and pass it up.
+`base.py`'s module docstring names each difference, ADR-0007 records the
+concurrency contract, ADR-0008 the clock and ADR-0009 the retry policy.
 
 It is deliberately not exported from `atlas.broker`. This package's namespace is
 what a *caller* depends on, and a caller has no use for a base class; an adapter

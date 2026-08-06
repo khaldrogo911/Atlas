@@ -139,6 +139,59 @@ base that is *handed* one is wrong for neither, and gains the thing a hardcoded
 :func:`datetime.now` cannot have — a test for a one-hour timeout that takes no
 time to run.
 
+Retry and reconnection
+----------------------
+:meth:`~atlas.broker.adapter.BrokerAdapter.connect` and
+:meth:`~atlas.broker.adapter.BrokerAdapter.reconnect` reach a venue over a
+network, and a network fails in two unrelated ways. One is transient — a dropped
+socket, a terminal still starting, a venue briefly unreachable — and is fixed by
+waiting a moment and asking again. The other is not: a rejected password is
+rejected just as firmly on the fourth attempt, and a retry loop that cannot tell
+the two apart hammers a venue with a login that is never going to work.
+
+The exception hierarchy already draws that line, and this class reads it rather
+than restating it. :data:`RETRYABLE_ERRORS` is
+:class:`~atlas.broker.exceptions.BrokerConnectionError`, whose own definition is
+"the retryable branch of the tree". :data:`PERMANENT_ERRORS` carves
+:class:`~atlas.broker.exceptions.BrokerNotConnectedError` back out of it, because
+that one is Atlas's own fault and is fixed by connecting rather than by waiting.
+:class:`~atlas.broker.exceptions.BrokerAuthenticationError` needs no entry in
+either: it is deliberately not a connection error, so it is already outside the
+retryable set, and a test asserts that this remains true rather than trusting the
+list to be maintained.
+
+**How many attempts and how long between them is a**
+:class:`~atlas.common.retry.RetryPolicy`, injected the way the clock is and
+defaulting to :meth:`~atlas.common.retry.RetryPolicy.none` — one attempt, no
+delay, exactly what every caller got before. Retrying is opted into. A default
+that retried would change the behaviour of code that never asked for it, and the
+only symptom would be that a failure took longer to arrive.
+
+**The waiting happens inside the session lock**, and that is a decision rather
+than an accident. ADR-0007 requires a reconnect to be one critical section, and a
+retry loop that released the lock between attempts would offer another thread the
+gap between a teardown and its rebuild — the exact window the outer hold exists to
+close. The cost is that a caller wanting *this* adapter's session waits out the
+backoff. The supervision guarantee is unaffected and is what makes the cost
+acceptable: :meth:`BaseBrokerAdapter.health`,
+:meth:`BaseBrokerAdapter.is_connected` and
+:meth:`BaseBrokerAdapter.heartbeat_age` take no session lock, so a supervisor is
+answered mid-backoff exactly as it is answered mid-connect. No new lock is
+introduced, so the lock order is the one ADR-0007 fixed, unchanged.
+
+**Attempts do not multiply.** A subclass composes its reconnect out of the public
+:meth:`disconnect` and :meth:`connect` — the MetaTrader 5 adapter does — so a
+naive retry in both public methods would give a three-attempt policy nine
+attempts through one of the adapters and three through the other. The public
+methods therefore share a re-entrancy flag, read and written only with the
+re-entrant session lock held: the outermost lifecycle call runs the policy, and
+an inner one delegates straight to its hook. A retried reconnect retries the
+whole teardown-and-rebuild, once per attempt, in both adapters and in any third.
+
+:meth:`disconnect` is not retried at all. The port requires it never to raise, so
+there is nothing to retry, and a teardown that held the session lock through a
+backoff schedule would keep it from the caller who asked to be let go.
+
 **The not-connected guard.** Both adapters refuse a request that has no session,
 and they refuse it in structurally different places: the mock checks on entry to
 each port method, naming the method; MetaTrader 5 checks inside
@@ -157,15 +210,33 @@ from datetime import timedelta
 from typing import TYPE_CHECKING
 
 from atlas.broker.adapter import BrokerAdapter
+from atlas.broker.exceptions import BrokerConnectionError, BrokerNotConnectedError
 from atlas.broker.models import Connection
 from atlas.common.clock import SystemClock
+from atlas.common.retry import RetryPolicy, retry_call
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from atlas.broker.models import ConnectionState, LatencyMilliseconds, Timestamp
     from atlas.broker.types import BrokerName, ServerName
     from atlas.common.clock import Clock
 
 __all__ = ["BaseBrokerAdapter"]
+
+#: What a lifecycle call may be retried for. Not a list maintained here — it is
+#: the branch of the exception tree that documents itself as retryable, named
+#: once so that a new transient condition added to that branch is retried
+#: without anybody remembering to come back here.
+RETRYABLE_ERRORS: tuple[type[BaseException], ...] = (BrokerConnectionError,)
+
+#: What is carved back out of it. ``BrokerNotConnectedError`` is a
+#: ``BrokerConnectionError`` by inheritance and nothing like one in meaning: it
+#: says Atlas has no session, which waiting does not fix and calling ``connect``
+#: does. ``BrokerAuthenticationError`` is absent on purpose — it is already
+#: outside the retryable branch, and repeating it here would suggest the branch
+#: could not be relied on.
+PERMANENT_ERRORS: tuple[type[BaseException], ...] = (BrokerNotConnectedError,)
 
 
 class BaseBrokerAdapter(BrokerAdapter):
@@ -177,15 +248,16 @@ class BaseBrokerAdapter(BrokerAdapter):
     provides the synchronisation described in the module docstring.
 
     Still abstract: it implements five of the port's thirty-one methods and adds
-    six of its own, so a subclass that stops halfway cannot be instantiated —
+    seven of its own, so a subclass that stops halfway cannot be instantiated —
     the same protection the port itself provides.
 
     Notes:
-        A subclass must call ``super().__init__()``. Both locks, the clock and
-        the cached readings are created there, and an adapter that skips it
-        fails on its first :meth:`connect` call rather than at construction.
-        The call takes no positional arguments and its one keyword argument is
-        optional, so an existing ``super().__init__()`` keeps working unchanged.
+        A subclass must call ``super().__init__()``. Both locks, the clock, the
+        retry policy and the cached readings are created there, and an adapter
+        that skips it fails on its first :meth:`connect` call rather than at
+        construction. The call takes no positional arguments and both of its
+        keyword arguments are optional, so an existing ``super().__init__()``
+        keeps working unchanged and keeps meaning what it meant.
 
         No subclass writes a lock. The lifecycle hooks run with the session lock
         already held, and the readings are reached through :meth:`_record_latency`,
@@ -194,8 +266,8 @@ class BaseBrokerAdapter(BrokerAdapter):
         there is nowhere to put it.
     """
 
-    def __init__(self, *, clock: Clock | None = None) -> None:
-        """Build the locks and the clock, and start with no session readings.
+    def __init__(self, *, clock: Clock | None = None, retry: RetryPolicy | None = None) -> None:
+        """Build the locks, the clock and the retry policy, with no readings yet.
 
         Args:
             clock: Where this adapter gets the time. Defaults to
@@ -206,6 +278,13 @@ class BaseBrokerAdapter(BrokerAdapter):
                 stays deterministic. Keyword-only, because a subclass reading
                 ``super().__init__(something)`` should have to say what the
                 something is.
+            retry: How :meth:`connect` and :meth:`reconnect` respond to a
+                transient failure. Defaults to
+                :meth:`~atlas.common.retry.RetryPolicy.none` — one attempt, no
+                delay — which is what both methods did before this parameter
+                existed. Whoever builds the adapter chooses, because how long a
+                strategy is willing to sit inside a reconnect is a fact about
+                the deployment and not about the venue.
 
         Notes:
             The readings are ``None`` rather than zero, and the distinction is
@@ -218,11 +297,20 @@ class BaseBrokerAdapter(BrokerAdapter):
             level lock would make every adapter in the process share one. The
             clock is per instance for the same reason and the opposite effect:
             two adapters may deliberately share one, and passing the same
-            instance to both is how that is said.
+            instance to both is how that is said. A policy may be shared too and
+            is safe to share, being frozen and holding nothing.
+
+            ``_retrying`` needs no lock of its own. It is read and written only
+            by :meth:`_with_retry`, which runs with the session lock already
+            held, so the thread that sets it is the only thread that can be
+            inside a lifecycle call at all — which is the entire reason a
+            re-entrancy flag is enough here and a counter is not needed.
         """
         self._clock: Clock = SystemClock() if clock is None else clock
+        self._retry: RetryPolicy = RetryPolicy.none() if retry is None else retry
         self._session_lock = threading.RLock()
         self._readings_lock = threading.Lock()
+        self._retrying = False
         self._last_latency_ms: LatencyMilliseconds | None = None
         self._last_heartbeat: Timestamp | None = None
         self._last_heartbeat_reading: float | None = None
@@ -347,9 +435,15 @@ class BaseBrokerAdapter(BrokerAdapter):
             waiter then runs :meth:`_connect` against a session that is already
             established, and every adapter treats that as the port requires —
             as a no-op returning the current snapshot, not a second connection.
+
+            Retried according to the adapter's
+            :class:`~atlas.common.retry.RetryPolicy`, which by default makes
+            exactly one attempt. A retry waits inside the session lock; see the
+            module docstring for why that is the required behaviour rather than
+            a shortcut.
         """
         with self._session_lock:
-            return self._connect()
+            return self._with_retry(self._connect)
 
     def disconnect(self) -> None:
         """Close the session.
@@ -361,6 +455,11 @@ class BaseBrokerAdapter(BrokerAdapter):
             Serialised against :meth:`connect` and :meth:`reconnect`, so it
             cannot tear a session down halfway through one being built. Never
             raises, as the port requires of a cleanup path.
+
+            Not retried, whatever the policy says. There is nothing to retry in
+            a call that does not fail, and holding the session lock through a
+            backoff schedule would be the opposite of what a caller asking to be
+            released wants.
         """
         with self._session_lock:
             self._disconnect()
@@ -377,10 +476,62 @@ class BaseBrokerAdapter(BrokerAdapter):
         Notes:
             The whole teardown and rebuild is one critical section. A concurrent
             :meth:`connect` cannot slip into the gap between the two halves and
-            establish a session this method is about to replace.
+            establish a session this method is about to replace. Retrying does
+            not widen that gap, because every attempt happens inside the same
+            hold.
+
+            The unit retried is the whole of :meth:`_reconnect`, so an adapter
+            that composes it from :meth:`disconnect` and :meth:`connect` tears
+            down and rebuilds once per attempt. The inner :meth:`connect` does
+            not run a retry policy of its own — see :meth:`_with_retry` — so a
+            three-attempt policy makes three attempts here and not nine.
         """
         with self._session_lock:
-            return self._reconnect()
+            return self._with_retry(self._reconnect)
+
+    def _with_retry(self, hook: Callable[[], Connection]) -> Connection:
+        """Run a lifecycle hook under the adapter's retry policy.
+
+        Args:
+            hook: The subclass's :meth:`_connect` or :meth:`_reconnect`, already
+                running with the session lock held.
+
+        Returns:
+            Whatever the successful attempt returned.
+
+        Raises:
+            BrokerError: Whatever the final attempt raised. The caller sees the
+                venue's own failure, from the last attempt rather than the
+                first, never wrapped in a retry-specific type.
+
+        Notes:
+            Called only with the session lock held, which is what makes the
+            re-entrancy flag safe without a lock of its own and what keeps every
+            attempt inside one critical section.
+
+            The flag is the answer to a specific hazard rather than defensive
+            habit. :meth:`reconnect` delegates to a hook that both adapters may
+            write in terms of the *public* :meth:`connect`, and the MetaTrader 5
+            adapter does. Running the policy at both depths would compound: with
+            three attempts the MetaTrader 5 adapter would make nine and the mock
+            three, so the two would disagree about the meaning of the same
+            configured number, which is exactly the divergence a shared base
+            class exists to prevent. Only the outermost call retries; an inner
+            one is a single attempt belonging to the outer one's count.
+        """
+        if self._retrying:
+            return hook()
+        self._retrying = True
+        try:
+            return retry_call(
+                hook,
+                policy=self._retry,
+                clock=self._clock,
+                retry_on=RETRYABLE_ERRORS,
+                give_up_on=PERMANENT_ERRORS,
+            )
+        finally:
+            self._retrying = False
 
     def _connection(self) -> Connection:
         """Assemble the connectivity snapshot from local state.

@@ -119,6 +119,7 @@ if TYPE_CHECKING:
         Unset,
     )
     from atlas.common.clock import Clock
+    from atlas.common.retry import RetryPolicy
 
 __all__ = ["MT5BrokerAdapter"]
 
@@ -174,6 +175,7 @@ class MT5BrokerAdapter(BaseBrokerAdapter):
         *,
         session: MT5Session | None = None,
         clock: Clock | None = None,
+        retry: RetryPolicy | None = None,
     ) -> None:
         """Build an adapter that is not yet connected.
 
@@ -182,6 +184,11 @@ class MT5BrokerAdapter(BaseBrokerAdapter):
             session: Session to use. Defaults to one built from ``config``.
                 Injected so that a test supplies a session wired to a stub
                 terminal and the MetaTrader5 package is never imported.
+            retry: How :meth:`connect` and :meth:`reconnect` respond to a
+                transient failure. Passed straight to the base, which owns the
+                behaviour; nothing about it is specific to this terminal.
+                Defaults to no retry, which is what this adapter did before the
+                parameter existed.
             clock: Where the adapter gets the time. Defaults to
                 :class:`~atlas.common.clock.SystemClock`, which is the host's
                 and is what production runs on — this adapter talks to a real
@@ -196,7 +203,7 @@ class MT5BrokerAdapter(BaseBrokerAdapter):
             :class:`~atlas.broker.mt5.connection.ServerClock` — a converter
             between the trade server's zone and UTC, not a source of time.
         """
-        super().__init__(clock=clock)
+        super().__init__(clock=clock, retry=retry)
         self._session = session if session is not None else MT5Session(config)
         self._broker_name: str = _UNKNOWN_BROKER
 
@@ -443,8 +450,12 @@ class MT5BrokerAdapter(BaseBrokerAdapter):
             BrokerTimeoutError: If the terminal did not answer in time.
 
         Notes:
-            Exactly one attempt, with no backoff, as the port specifies. There
-            are no subscriptions to invalidate because this adapter issues none.
+            This method is one attempt. Repeating it is the base class's retry
+            policy, and the inner :meth:`connect` below does not run a policy of
+            its own — the base suppresses it for the duration — so a
+            three-attempt policy tears the terminal down and brings it back
+            three times, not nine. There are no subscriptions to invalidate
+            because this adapter issues none.
 
             Composed from the public :meth:`disconnect` and :meth:`connect`,
             both of which re-enter the session lock this method already holds.

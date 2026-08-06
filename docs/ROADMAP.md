@@ -21,9 +21,10 @@ and in package documentation. This file is where they resolve to a status.
 | ATLAS-TASK-0007 | `BaseBrokerAdapter` | ✅ Complete | `1673f79` |
 | ATLAS-TASK-0008 | Adapter concurrency | ✅ Complete | `e451608` |
 | ATLAS-TASK-0009 | The `Clock` abstraction | ✅ Complete | `a400530` |
+| ATLAS-TASK-0010 | Retry and reconnection policy | ✅ Complete | `PENDING` |
 
-Nothing beyond ATLAS-TASK-0009 is defined, and nothing here declares what
-ATLAS-TASK-0010 will be. The tasks above are the ones the repository itself
+Nothing beyond ATLAS-TASK-0010 is defined, and nothing here declares what
+ATLAS-TASK-0011 will be. The tasks above are the ones the repository itself
 declares; this file does not speculate past them.
 
 ## Completed
@@ -277,10 +278,80 @@ origins. One equivalent mutant remains and is left alone — reading the venue
 clock's private instant instead of calling `now()` differs only by a lock
 acquisition on a value whose read is already atomic.
 
+### ATLAS-TASK-0010 — retry and reconnection policy
+
+`atlas/common/retry.py`: a frozen `RetryPolicy` and a `retry_call` that executes
+one. A retry loop written inline is three decisions welded to a call site — how
+many attempts, how long between them, and which failures are worth repeating —
+and welded they cannot be configured, cannot be tested without provoking the
+failure they exist for, and get rewritten slightly differently at the next call
+site. This takes them apart.
+
+**The policy is a value.** It holds no clock, no exception types and no reference
+to whatever is being retried, so it can be built in a config module, compared,
+logged and asserted on. `delays()` returns the whole schedule as a tuple, which
+is what makes "exponential backoff progresses 1, 2, 4" a statement about a value
+rather than about a run. Four named constructors — `none`, `immediate`, `fixed`,
+`exponential` — and a constructor that refuses a policy that could not mean what
+it says: fewer than one attempt, a negative delay, a multiplier below one that
+would *shrink* each wait, or a ceiling below the first delay that would make
+`initial_delay` a silently ignored field.
+
+**The default is one attempt.** Retrying is opted into. A policy that retried by
+default would change the behaviour of code that never asked for it, and the only
+symptom of a wrongly retried call is that it took longer to fail — which is also
+what makes the regression evidence possible: every adapter constructed the way it
+was before this task behaves exactly as it did.
+
+**The waiting belongs to the clock.** `Clock` gained a third member, `sleep`, and
+it is the port's only *verb*. It is there rather than on a separate `Sleeper`
+because waiting and elapsed time are one fact, and two collaborators that must
+agree about elapsed time are a bug surface. `ManualClock.sleep` is `advance`, so
+a hundred-second backoff runs in no time and the resulting instant is asserted
+exactly. Nothing in `retry.py` reads the host clock, and a static scan in
+`tests/unit/common/test_retry.py` asserts it — a real sleep would leave a manual
+clock exactly where the assertions expect it, and pass.
+
+**Which failures is a domain fact, so it is a parameter.** `retry_call` takes
+`retry_on` and a `give_up_on` that carves types back out of it, and `base.py`
+states the broker's answer by reading the exception tree that already existed:
+`RETRYABLE_ERRORS = (BrokerConnectionError,)`, `PERMANENT_ERRORS =
+(BrokerNotConnectedError,)`. `BrokerAuthenticationError` needs no entry because
+ATLAS-TASK-0005 deliberately did not make it a `BrokerConnectionError` — a
+credential the venue refused is not going to be accepted on the third ask. The
+tree had encoded that distinction for five tasks and nothing had ever read it.
+
+Integration is in `BaseBrokerAdapter` and nowhere else. `connect` and `reconnect`
+are wrapped; `disconnect` is not, because the port requires it to succeed and
+retrying a teardown is repeating an operation the venue may already have honoured.
+Both adapters inherit it and neither implements any of it.
+
+Two consequences the lock rules forced. **Attempts do not multiply**: MT5's
+`_reconnect` is composed from the public `disconnect` and `connect`, so a naive
+wrapper would make a three-attempt policy mean nine attempts there and three on
+the mock. A `_retrying` flag, read and written only under the re-entrant session
+lock and cleared in a `finally`, makes only the outermost call retry. And **the
+backoff waits inside the session lock**, because ADR-0007 fixed that a reconnect
+is one critical section and not two; `health()`, `is_connected()` and
+`heartbeat_age()` take no session lock, so supervision still answers throughout a
+sixty-second backoff, and both halves of that are asserted from a second thread.
+
+[ADR-0009](adr/0009-retry-is-a-value-and-the-waiting-is-the-clocks.md) records
+the decision and nine rejected alternatives. `packages/common/src/atlas/common/README.md`
+was written, closing the gap ATLAS-TASK-0009 observed.
+
+183 tests were added — 61 for the policy and `retry_call`, 110 across every
+discovered adapter, and 13 for `Clock.sleep`. A 34-mutant campaign killed 33 on
+the first run. The survivor was a gap rather than an equivalent mutant: the first
+attempt's delay being zero was asserted only against `RetryPolicy.none()`, whose
+`initial_delay` is zero anyway, so returning `initial_delay` there was the same
+answer by accident. It is killed now by asking the same question of a policy that
+actually waits.
+
 ## Known documentation debt
 
 - **ADR-015 and ADR-016** were declared dependencies of ATLAS-TASK-0004 but do
-  not exist. `docs/adr/` currently ends at 0008.
+  not exist. `docs/adr/` currently ends at 0009.
 - **Version.** ATLAS-TASK-0004 was specified as `v0.2.0-alpha`; `pyproject.toml`
   and `README.md` still declare `v0.1.0-alpha`. A contract test ties the
   `atlas-core` image tag to `[project].version`, so a bump touches all three.

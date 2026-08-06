@@ -15,6 +15,14 @@ question and :meth:`Clock.monotonic` the second, and an implementation is
 required to keep them independent in exactly that way: a wall-clock jump must
 not move the monotonic reading, and the monotonic reading must never decrease.
 
+:meth:`Clock.sleep` is the one thing here that is not a reading. It is on the
+same port rather than on a second one because waiting and measuring have to
+agree: code that sleeps through one object and then asks another how long it
+waited is testing two doubles against each other. ATLAS-TASK-0010 added it for
+retry backoff, and ADR-0009 records why. On a :class:`ManualClock` it returns
+immediately *and moves the clock*, so a backoff schedule is asserted as an exact
+instant rather than waited out.
+
 Why this is a port
 ------------------
 Because the alternative is a test that sleeps. Code that calls
@@ -65,6 +73,28 @@ def _require_aware(value: datetime, name: str) -> datetime:
     return value.astimezone(UTC)
 
 
+def _require_non_negative(seconds: float, name: str) -> float:
+    """Reject a negative duration.
+
+    Args:
+        seconds: The duration supplied by the caller.
+        name: Parameter name, for the message.
+
+    Returns:
+        The same value.
+
+    Raises:
+        ValueError: If ``seconds`` is negative. Checked here rather than left to
+            :func:`time.sleep` so that both implementations refuse the same
+            input with the same message, and so that a caller cannot discover
+            the difference only in production.
+    """
+    if seconds < 0:
+        msg = f"{name} must not be negative; got {seconds!r}"
+        raise ValueError(msg)
+    return seconds
+
+
 @runtime_checkable
 class Clock(Protocol):
     """A source of time, injected into a component rather than read by it.
@@ -100,6 +130,30 @@ class Clock(Protocol):
         """
         ...
 
+    def sleep(self, seconds: float) -> None:
+        """Wait for a duration.
+
+        Args:
+            seconds: How long to wait. Must not be negative. Zero returns
+                immediately and is the way a caller says "no delay" without
+                branching around the call.
+
+        Returns:
+            Nothing.
+
+        Raises:
+            ValueError: If ``seconds`` is negative.
+
+        Notes:
+            An implementation must leave :meth:`now` and :meth:`monotonic`
+            consistent with the wait it performed: after ``sleep(n)`` both hands
+            have moved by ``n``, whether that happened by waiting or by
+            arithmetic. A clock whose sleep did not move its own readings would
+            let a caller wait and then measure no elapsed time, which is the one
+            way this port could lie about the thing it exists to model.
+        """
+        ...
+
 
 class SystemClock:
     """The host's clock: the default, and what production runs on.
@@ -126,6 +180,26 @@ class SystemClock:
         """
         return time.monotonic()
 
+    def sleep(self, seconds: float) -> None:
+        """Block the calling thread.
+
+        Args:
+            seconds: How long to wait. Must not be negative.
+
+        Returns:
+            Nothing.
+
+        Raises:
+            ValueError: If ``seconds`` is negative.
+
+        Notes:
+            The host's own clocks move on their own, so nothing has to be
+            credited here. This is the one method on this class that a test
+            must never reach: a suite that blocks for a real backoff is the
+            thing :class:`ManualClock` exists to prevent.
+        """
+        time.sleep(_require_non_negative(seconds, "seconds"))
+
 
 class ManualClock:
     """A clock that moves only when told to.
@@ -147,6 +221,11 @@ class ManualClock:
         change. The instant jumps and the monotonic reading does not move at
         all, which is what a real monotonic clock does and therefore what a
         test asserting immunity to a clock step needs.
+
+    :meth:`sleep`
+        Time passing because something waited for it. Identical to
+        :meth:`advance` in effect and instant in duration, which is what lets a
+        test assert a retry backoff schedule as an exact final instant.
 
     Notes:
         Thread safe, and a leaf: nothing is called while its lock is held, so
@@ -235,3 +314,25 @@ class ManualClock:
         aware = _require_aware(moment, "moment")
         with self._lock:
             self._instant = aware
+
+    def sleep(self, seconds: float) -> None:
+        """Credit a wait without performing one.
+
+        Args:
+            seconds: How long the caller believes it waited. Must not be
+                negative.
+
+        Returns:
+            Nothing, and it returns straight away.
+
+        Raises:
+            ValueError: If ``seconds`` is negative.
+
+        Notes:
+            This is :meth:`advance` under another name, and that identity is
+            the whole value of the method. Code under test that backs off for a
+            minute and then stamps a heartbeat produces the same instants it
+            would produce in production, in no time at all, so a backoff
+            schedule is asserted as an exact instant rather than a tolerance.
+        """
+        self.advance(timedelta(seconds=_require_non_negative(seconds, "seconds")))

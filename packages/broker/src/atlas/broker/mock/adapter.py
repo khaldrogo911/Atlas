@@ -130,6 +130,7 @@ if TYPE_CHECKING:
         TickHandler,
         Unset,
     )
+    from atlas.common.retry import RetryPolicy
 
 __all__ = ["MOCK_VERSION", "MockBrokerAdapter"]
 
@@ -182,11 +183,16 @@ class MockBrokerAdapter(BaseBrokerAdapter):
         should find out here rather than against a live venue.
     """
 
-    def __init__(self, venue: MockVenue | None = None) -> None:
+    def __init__(self, venue: MockVenue | None = None, *, retry: RetryPolicy | None = None) -> None:
         """Bind an adapter to a venue.
 
         Args:
             venue: The venue to trade against, or ``None`` for a fresh one.
+            retry: How :meth:`connect` and :meth:`reconnect` respond to a
+                transient failure. Passed straight to the base, which owns the
+                behaviour. Defaults to no retry, so a failure scheduled with
+                ``venue.schedule_failure`` still surfaces on the call that
+                provoked it unless a test asks for otherwise.
 
         Notes:
             The adapter's clock *is* the venue's, and there is no parameter to
@@ -196,9 +202,16 @@ class MockBrokerAdapter(BaseBrokerAdapter):
             depends on how long the test took to run. Inject deterministic time
             by giving the venue its start — ``MockVenue(now=...)`` — and moving
             it with ``venue.advance``.
+
+            ``retry`` is a parameter where ``clock`` is not, and the asymmetry
+            is the point. A clock the venue does not share breaks determinism; a
+            retry policy has nothing to be inconsistent with, and a backoff run
+            against the venue's manual clock costs no time at all. It is how a
+            test drives the base's retry behaviour through a real adapter rather
+            than through a probe written for the purpose.
         """
         resolved = venue if venue is not None else MockVenue()
-        super().__init__(clock=resolved.clock)
+        super().__init__(clock=resolved.clock, retry=retry)
         self._venue = resolved
         self._state = ConnectionState.DISCONNECTED
 
@@ -601,8 +614,13 @@ class MockBrokerAdapter(BaseBrokerAdapter):
         Notes:
             Subscriptions do not survive, as the port requires, and they are
             dropped before the attempt — so a reconnect that fails leaves no
-            handles behind either. Exactly one attempt is made; backoff is a
-            caller's policy.
+            handles behind either.
+
+            This method is one attempt. How many of them happen, and how long
+            apart, is the base class's retry policy, and the whole of this
+            method is what it repeats — so a retried reconnect drops the
+            subscriptions again on each pass, which is what a test scheduling
+            two failures against ``reconnect`` should expect.
 
             Composed from the public :meth:`disconnect`, which re-enters the
             session lock this method already holds.

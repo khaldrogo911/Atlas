@@ -167,8 +167,16 @@ class BrokerAdapter(ABC):
         Notes:
             Subscriptions do not survive. A caller holding a
             :data:`~atlas.broker.types.SubscriptionID` across a reconnect must
-            re-subscribe; the old handle is dead. Retry and backoff policy is
-            not defined here — this method makes exactly one attempt.
+            re-subscribe; the old handle is dead.
+
+            Retry and backoff policy is not defined here, and an implementation
+            that has been given none makes exactly one attempt. That is the
+            floor rather than a promise about the count: an implementation may
+            have been configured to try again, and
+            :class:`~atlas.broker.base.BaseBrokerAdapter` can be. What the
+            contract fixes is what a caller sees — one call, and either a
+            session or the venue's own error — not how many times the venue was
+            asked.
         """
 
     @abstractmethod

@@ -153,6 +153,25 @@ guarded method called without a session raises `BrokerNotConnectedError` and
 **leaves the failure queued** — the session check comes first, and a queued
 failure that silently vanished would make the next assertion in the test wrong.
 
+The same is true of a redundant `connect`. Calling it on a session that already
+exists returns the current state without consuming anything, because a call the
+port declares is not an error must not become one.
+
+### Fault injection and retrying
+
+`MockBrokerAdapter` takes an optional `retry: RetryPolicy`, inherited from
+`BaseBrokerAdapter` and defaulting to no retry, so the queue behaves exactly as
+it always did unless a policy is passed. It takes no `clock` parameter — that
+is the venue's, and it stays the venue's; see ADR-0008.
+
+Under a policy, one queued failure is consumed **per attempt**. Three failures
+queued against `connect` and a three-attempt policy means the call exhausts and
+raises; queue two and the third attempt succeeds. `connect` and `reconnect` keep
+separate queues, so a test can fail the first without failing the recovery.
+
+`_reconnect` drops this adapter's subscriptions before each attempt, so a
+retried reconnect drops them once per attempt rather than once per call.
+
 ## Errors
 
 Every failure that leaves `adapter.py` is an `atlas.broker.exceptions` type or a
@@ -207,5 +226,4 @@ required margin is asserting on this formula, and the formula is a simplificatio
 
 | Task | What it changes here |
 | --- | --- |
-| *(unscheduled)* — retry and reconnection policy in `BaseBrokerAdapter` | Would arrive the way locking did in ATLAS-TASK-0008: written once in the base and inherited here unnamed. Nothing retries anything today |
 | *(unscheduled)* — replay engine | A separate implementation that *does* trigger on price, built where a fill model is the subject rather than a side effect. This package's boundary is what keeps that decision available |

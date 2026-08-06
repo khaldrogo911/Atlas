@@ -17,6 +17,7 @@ the history of the system's reasoning stays intact.
 | [0006](0006-mock-adapter-simulates-bookkeeping-not-price.md) | The mock adapter simulates bookkeeping, not price | Accepted |
 | [0007](0007-two-locks-in-the-base-adapter.md) | Two locks in the base adapter, and none below it | Accepted |
 | [0008](0008-time-is-injected.md) | Time is injected, and it has two hands | Accepted |
+| [0009](0009-retry-is-a-value-and-the-waiting-is-the-clocks.md) | Retrying is a value, and the waiting belongs to the clock | Accepted |
 
 ## Writing one
 

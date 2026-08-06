@@ -33,20 +33,29 @@ market ──▶ features ──▶ regime ─┐
 importable anywhere. `learning` runs offline and is never imported by the live
 path.
 
-`common` holds one thing so far, and it is the first exercise of that rule:
-`atlas.common.clock` — a `Clock` port with a wall hand and a monotonic hand, a
-`SystemClock` that reads the host and a `ManualClock` for tests. `atlas.broker`
-imports it, which is the only edge between two feature packages in the graph
-today. It runs in the permitted direction, and `tests/unit/broker/test_adapter_contract.py`
-asserts both halves: that `atlas.broker` may reach `atlas.common`, and that it
-still may not reach anything above the port. See
-[ADR 0008](../adr/0008-time-is-injected.md).
+`common` holds two things so far, and they are the first exercise of that rule.
+`atlas.common.clock` is a `Clock` port with a wall hand, a monotonic hand and a
+`sleep`, a `SystemClock` that reads the host and a `ManualClock` for tests.
+`atlas.common.retry` is a frozen `RetryPolicy` and a `retry_call` that executes
+one, which waits on a clock it is given and takes the transient exception types
+as a parameter — so it names no venue, no domain and no failure of its own.
+Both are here rather than in `atlas.broker` for the same reason: market data,
+execution and notification will each want to retry something against a clock,
+and a definition in a feature package would have to be imported upward, which
+the graph forbids.
+
+`atlas.broker` imports `atlas.common`, which is still the only edge between two
+feature packages in the graph today. It runs in the permitted direction, and
+`tests/unit/broker/test_adapter_contract.py` asserts both halves: that
+`atlas.broker` may reach `atlas.common`, and that it still may not reach anything
+above the port. See [ADR 0008](../adr/0008-time-is-injected.md) and
+[ADR 0009](../adr/0009-retry-is-a-value-and-the-waiting-is-the-clocks.md).
 
 ## Package responsibilities
 
 | Package | Owns | Must not |
 |---|---|---|
-| `common` | Primitives, identifiers, clock, typing vocabulary | Import any other `atlas.*` package; encode domain rules |
+| `common` | Primitives, identifiers, clock, retry policy, typing vocabulary | Import any other `atlas.*` package; encode domain rules |
 | `config` | Layered settings, validation, secrets handling | — *(implemented)* |
 | `events` | Event contracts, serialisation, message bus | Interpret events |
 | `broker` | The `BrokerAdapter` port and its data contracts | Size, route or risk-check anything |

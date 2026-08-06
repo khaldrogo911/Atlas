@@ -61,6 +61,11 @@ CONTENDED_SWITCH_INTERVAL: Final = 1e-5
 #: came out of rather than merely that it was a plausible number.
 SENTINEL: Final = -12345.5
 
+#: A duration for the wait tests. Never actually waited — the system clock's
+#: sleep is intercepted and the manual clock's returns instantly — so the value
+#: only has to be recognisable and not round.
+PAUSE: Final = 2.5
+
 #: Twenty years in seconds. A wall-clock timestamp is measured from 1970 and a
 #: monotonic reading from the host's last boot, so the gap between them is
 #: decades; this is the margin by which they must differ before the two hands
@@ -181,6 +186,20 @@ class TestTheProtocol:
 
         assert not isinstance(WallOnly(), Clock)
 
+    def test_something_that_cannot_wait_does_not(self) -> None:
+        # The second control, and the one ATLAS-TASK-0010 added the method for.
+        # A type with both readings and no way to wait is what the port looked
+        # like before, so this is the assertion that would still pass if `sleep`
+        # were quietly dropped from the protocol again.
+        class ReadingsOnly:
+            def now(self) -> datetime:
+                return START
+
+            def monotonic(self) -> float:
+                return 0.0
+
+        assert not isinstance(ReadingsOnly(), Clock)
+
 
 class TestTheSystemClock:
     def test_its_instants_are_timezone_aware(self) -> None:
@@ -235,6 +254,41 @@ class TestTheSystemClock:
         second = SystemClock().now()
 
         assert second - first < timedelta(seconds=1)
+
+
+class TestTheSystemClockWaits:
+    def test_it_waits_by_calling_the_standard_library(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Nothing in this suite may block, so the wait is intercepted rather
+        # than performed. What is asserted is the only thing worth asserting
+        # about this method: that the duration reaches `time.sleep` unchanged.
+        waited: list[float] = []
+        monkeypatch.setattr(time, "sleep", waited.append)
+
+        SystemClock().sleep(PAUSE)
+
+        assert waited == [PAUSE]
+
+    def test_a_zero_wait_still_reaches_it(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # An immediate-retry policy asks for zero, and the caller does not
+        # branch around it. Short-circuiting here would be a plausible
+        # optimisation that silently changed thread-yielding behaviour.
+        waited: list[float] = []
+        monkeypatch.setattr(time, "sleep", waited.append)
+
+        SystemClock().sleep(0.0)
+
+        assert waited == [0.0]
+
+    def test_it_refuses_a_negative_wait(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        waited: list[float] = []
+        monkeypatch.setattr(time, "sleep", waited.append)
+
+        with pytest.raises(ValueError, match="seconds must not be negative"):
+            SystemClock().sleep(-PAUSE)
+
+        assert waited == []
 
 
 class TestTheManualClockStartsWhereItIsTold:
@@ -393,6 +447,99 @@ class TestCorrectingTheManualClock:
             clock.set_time(datetime(2020, 1, 1))  # noqa: DTZ001 — the point of the test
 
         assert clock.now() == START
+
+
+class TestSleepingOnTheManualClock:
+    """That a wait is credited as time passing, and takes none.
+
+    The whole value of this method is that it is :meth:`advance` under another
+    name. Code that backs off for a minute and then stamps a heartbeat has to
+    produce the instants it would produce in production; a sleep that returned
+    without moving the clock would let a caller wait and then measure nothing.
+    """
+
+    def test_it_returns_without_waiting(self) -> None:
+        # A real wait of a day would end this suite. The assertion is on the
+        # host's clock precisely because nothing else can tell the difference
+        # between an instant return and a correct one.
+        clock = ManualClock(START)
+        before = time.monotonic()
+
+        clock.sleep(timedelta(days=1).total_seconds())
+
+        assert time.monotonic() - before < 1.0
+
+    def test_it_moves_the_instant_forwards(self) -> None:
+        clock = ManualClock(START)
+
+        clock.sleep(PAUSE)
+
+        assert clock.now() == START + timedelta(seconds=PAUSE)
+
+    def test_it_credits_the_elapsed_time(self) -> None:
+        # The half a `set_time` deliberately does not do. A backoff is time
+        # passing, so a heartbeat aged across one must be that much older.
+        clock = ManualClock(START)
+
+        clock.sleep(PAUSE)
+
+        assert clock.monotonic() == PAUSE
+
+    def test_successive_waits_accumulate(self) -> None:
+        clock = ManualClock(START)
+
+        clock.sleep(1.0)
+        clock.sleep(2.0)
+        clock.sleep(4.0)
+
+        assert clock.now() == START + timedelta(seconds=7)
+        assert clock.monotonic() == 7.0
+
+    def test_a_zero_wait_moves_nothing(self) -> None:
+        clock = ManualClock(START)
+
+        clock.sleep(0.0)
+
+        assert clock.now() == START
+        assert clock.monotonic() == 0.0
+
+    def test_it_refuses_a_negative_wait(self) -> None:
+        clock = ManualClock(START)
+
+        with pytest.raises(ValueError, match="seconds must not be negative"):
+            clock.sleep(-PAUSE)
+
+    def test_a_refused_wait_moves_nothing(self) -> None:
+        # Guarded before the delegation rather than after it, so a rejected
+        # duration cannot have already moved one hand.
+        clock = ManualClock(START)
+
+        with pytest.raises(ValueError, match="seconds must not be negative"):
+            clock.sleep(-PAUSE)
+
+        assert clock.now() == START
+        assert clock.monotonic() == 0.0
+
+    def test_it_names_seconds_rather_than_the_delta_it_delegates_to(self) -> None:
+        # `advance` refuses a negative `delta`, so the check could have been
+        # left to it. The message a caller then gets names a parameter it never
+        # passed and a `timedelta` it never built.
+        clock = ManualClock(START)
+
+        with pytest.raises(ValueError, match=r"got -2\.5"):
+            clock.sleep(-PAUSE)
+
+    def test_waiting_and_advancing_are_the_same_movement(self) -> None:
+        # Stated as an equality between two clocks rather than as two separate
+        # assertions, so that the two ways of moving time cannot drift apart
+        # without this failing.
+        slept = ManualClock(START)
+        advanced = ManualClock(START)
+
+        slept.sleep(PAUSE)
+        advanced.advance(timedelta(seconds=PAUSE))
+
+        assert (slept.now(), slept.monotonic()) == (advanced.now(), advanced.monotonic())
 
 
 @pytest.mark.usefixtures("contended")
