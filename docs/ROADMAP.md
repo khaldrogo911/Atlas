@@ -18,7 +18,7 @@ and in package documentation. This file is where they resolve to a status.
 | ATLAS-TASK-0004 | MetaTrader 5 broker adapter (demo foundation) | ✅ Complete | `36fa3e3` |
 | ATLAS-TASK-0005 | Broker exception hierarchy | ✅ Complete | `a07dcea` |
 | ATLAS-TASK-0006 | `MockBrokerAdapter` | ✅ Complete | `b11b154` |
-| ATLAS-TASK-0007 | `BaseBrokerAdapter` | ✅ Complete | `PENDING` |
+| ATLAS-TASK-0007 | `BaseBrokerAdapter` | ✅ Complete | `1673f79` |
 
 Nothing beyond ATLAS-TASK-0007 is defined, and nothing here declares what
 ATLAS-TASK-0008 will be. The tasks above are the ones the repository itself
