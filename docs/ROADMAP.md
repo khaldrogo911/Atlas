@@ -20,7 +20,7 @@ and in package documentation. This file is where they resolve to a status.
 | ATLAS-TASK-0006 | `MockBrokerAdapter` | ✅ Complete | `b11b154` |
 | ATLAS-TASK-0007 | `BaseBrokerAdapter` | ✅ Complete | `1673f79` |
 | ATLAS-TASK-0008 | Adapter concurrency | ✅ Complete | `e451608` |
-| ATLAS-TASK-0009 | The `Clock` abstraction | ✅ Complete | `PENDING` |
+| ATLAS-TASK-0009 | The `Clock` abstraction | ✅ Complete | `a400530` |
 
 Nothing beyond ATLAS-TASK-0009 is defined, and nothing here declares what
 ATLAS-TASK-0010 will be. The tasks above are the ones the repository itself
