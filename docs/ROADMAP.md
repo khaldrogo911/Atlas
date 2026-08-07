@@ -22,7 +22,7 @@ and in package documentation. This file is where they resolve to a status.
 | ATLAS-TASK-0008 | Adapter concurrency | ✅ Complete | `e451608` |
 | ATLAS-TASK-0009 | The `Clock` abstraction | ✅ Complete | `a400530` |
 | ATLAS-TASK-0010 | Retry and reconnection policy | ✅ Complete | `de7e905` ‡ |
-| ATLAS-TASK-0011 † | The risk boundary: `TradeIntent` and `RiskVerdict` | ✅ Complete | `PENDING` |
+| ATLAS-TASK-0011 † | The risk boundary: `TradeIntent` and `RiskVerdict` | ✅ Complete | `f54ad613` |
 
 † **Newly specified, not recovered.** Every other row is evidenced by the
 repository record: the task existed, and the commit it cites is the work.
