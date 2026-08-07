@@ -1,14 +1,16 @@
 """Structural tests for the strategy boundary.
 
 ATLAS-TASK-0012 adds the producing half of the boundary ATLAS-TASK-0011 defined,
-and with it exactly two edges: ``atlas.strategy -> atlas.risk``, which is the
-point of the task, and ``atlas.strategy -> atlas.broker``, which is narrow and
-enumerated. The tests here are what stop the second one widening.
+and with it exactly one edge: ``atlas.strategy -> atlas.risk``. The tests here
+are what stop a second one appearing — in particular ``atlas.strategy ->
+atlas.broker``, which a strategy that constructed its own intent would need and
+which no module in this package is permitted to take.
 
 They assert the shape of the package rather than its behaviour: which packages a
-strategy module may import, which four names it may take from the port and which
-eight it may not, that no module here can reach execution, and that nothing was
-made to pass by loosening the boundary next door.
+strategy module may import, that it takes *no* name from the port, that the
+eight order-construction symbols appear nowhere, that no module here can reach
+execution, and that nothing was made to pass by loosening the boundary next
+door.
 
 What these tests deliberately do **not** claim
     The invariant is that a strategy proposes and cannot bypass risk. Half of
@@ -51,15 +53,15 @@ RISK_SOURCES: Final = tuple(sorted(RISK_DIR.rglob("*.py")))
 #:
 #: ``atlas.strategy`` is itself. ``atlas.risk`` is the edge this task exists to
 #: create: a strategy produces a ``TradeIntent``, which risk owns.
-#: ``atlas.broker`` is admitted *only* for the four primitives a ``TradeIntent``
-#: is stated in — see :data:`PERMITTED_BROKER_NAMES`, which is what actually
-#: constrains it. ``atlas.common`` is admitted on the grounds
-#: ``docs/architecture/overview.md`` already states — dependency-free, importable
-#: anywhere, encoding no domain rules — though nothing here needs it yet.
+#: ``atlas.common`` is admitted on the grounds ``docs/architecture/overview.md``
+#: already states — dependency-free, importable anywhere, encoding no domain
+#: rules — though nothing here needs it yet.
+#:
+#: ``atlas.broker`` is **not** on this list, which is the decision that shapes
+#: the package. See :data:`INTENT_PRIMITIVES`.
 PERMITTED_ATLAS_PACKAGES: Final = (
     "atlas.strategy",
     "atlas.risk",
-    "atlas.broker",
     "atlas.common",
 )
 
@@ -67,6 +69,8 @@ PERMITTED_ATLAS_PACKAGES: Final = (
 #:
 #: ``execution`` is the one that matters: an import of it is a route around the
 #: verdict, which is the single thing this boundary exists to prevent.
+#: ``broker`` is next: a strategy that can name the port is a strategy that has
+#: started describing *how* to reach a venue rather than *what* it would like.
 #: ``market``, ``features`` and ``regime`` are excluded because ATLAS-TASK-0012
 #: defines no market-data contract — a strategy's input is a type parameter, and
 #: naming one of those packages here would fix its shape before it exists.
@@ -75,6 +79,7 @@ PERMITTED_ATLAS_PACKAGES: Final = (
 #: with no business inside a proposal.
 FORBIDDEN_ATLAS_PACKAGES: Final = (
     "atlas.execution",
+    "atlas.broker",
     "atlas.config",
     "atlas.events",
     "atlas.ai",
@@ -87,13 +92,19 @@ FORBIDDEN_ATLAS_PACKAGES: Final = (
     "atlas.audit",
 )
 
-#: The only names a strategy module may take from ``atlas.broker``.
+#: The four names a ``TradeIntent`` is stated in — and which a strategy module
+#: may nonetheless not import.
 #:
-#: A ``TradeIntent`` is stated in these four, so anything that builds one names
-#: them. Under ``mypy --strict`` with ``init_typed = True`` the dependency is
-#: direct rather than transitive: ``TradeIntent(side="BUY")`` is a type error
-#: even though the string works at runtime.
-PERMITTED_BROKER_NAMES: Final = ("OrderSide", "Price", "SymbolName", "Volume")
+#: Whatever *constructs* an intent must name these four: under ``mypy --strict``
+#: with ``init_typed = True``, ``TradeIntent(side="BUY")`` is a type error even
+#: though the string works at runtime. That is precisely why no module in this
+#: package constructs one. A caller with a concrete intent to hand over builds
+#: it, and the type it hands over is the only contract a strategy names.
+#:
+#: They are listed here for two assertions: that none of them is imported by
+#: strategy source, and that ``atlas.risk`` did not start re-exporting them to
+#: make such an import look shorter.
+INTENT_PRIMITIVES: Final = ("OrderSide", "Price", "SymbolName", "Volume")
 
 #: Names whose presence in strategy source would mean a strategy had started
 #: deciding how to reach a venue rather than proposing what it would like.
@@ -173,8 +184,13 @@ def _broker_imports(source: str) -> Iterator[str]:
 
 
 def _offending_broker_imports(source: str) -> list[str]:
-    """Return every name taken from the port that is not one of the permitted four."""
-    return [name for name in _broker_imports(source) if name not in PERMITTED_BROKER_NAMES]
+    """Return every name taken from the port, all of which are offending.
+
+    There is no permitted subset, so this is every name the scan finds. The
+    function is kept distinct from :func:`_broker_imports` so that the rule
+    being enforced — *nothing* — is named at the call sites that enforce it.
+    """
+    return list(_broker_imports(source))
 
 
 def _referenced_names(source: str) -> set[str]:
@@ -225,29 +241,24 @@ class TestTheScannersWork:
     def test_the_import_rule_can_actually_fire(self) -> None:
         assert _offending_imports("from atlas.execution import Executor") == ["atlas.execution"]
 
-    def test_the_broker_scanner_finds_the_primitives_this_package_takes(self) -> None:
-        taken = {name for path in STRATEGY_SOURCES for name in _broker_imports(_source_of(path))}
-
-        assert set(PERMITTED_BROKER_NAMES) <= taken, taken
-
     @pytest.mark.parametrize("name", ORDER_CONSTRUCTION_SYMBOLS)
     def test_the_broker_name_rule_can_actually_fire(self, name: str) -> None:
         assert _offending_broker_imports(f"from atlas.broker import {name}") == [name]
 
-    def test_the_broker_name_rule_admits_the_four_it_is_meant_to(self) -> None:
-        permitted = ", ".join(PERMITTED_BROKER_NAMES)
-
-        assert _offending_broker_imports(f"from atlas.broker.models import {permitted}") == []
+    @pytest.mark.parametrize("name", INTENT_PRIMITIVES)
+    def test_the_broker_name_rule_admits_none_of_the_four_either(self, name: str) -> None:
+        """The primitives an intent is stated in are refused like everything else."""
+        assert _offending_broker_imports(f"from atlas.broker.models import {name}") == [name]
 
     def test_the_broker_name_rule_rejects_binding_the_whole_port(self) -> None:
-        """A module import reaches every name in the module, so it is never one of four."""
+        """A module import reaches every name in the module, so it is refused as one."""
         assert _offending_broker_imports("import atlas.broker") == [WHOLE_MODULE]
         assert _offending_broker_imports("import atlas.broker.models") == [WHOLE_MODULE]
 
     def test_the_name_scanner_reads_real_identifiers(self) -> None:
         names = _referenced_names(_source_of(STRATEGY_DIR / "reference.py"))
 
-        assert {"TradeIntent", "SymbolName", "OrderSide", "Price", "Volume"} <= names
+        assert "TradeIntent" in names
 
     def test_the_name_scanner_ignores_prose(self) -> None:
         assert "BrokerAdapter" not in _referenced_names('"""Cannot obtain a BrokerAdapter."""')
@@ -308,8 +319,30 @@ class TestDependencyDirection:
 
 class TestStrategyNeverReachesTheVenue:
     @pytest.mark.parametrize("path", STRATEGY_SOURCES, ids=lambda path: path.name)
-    def test_a_strategy_module_takes_only_the_four_permitted_primitives(self, path: Path) -> None:
+    def test_a_strategy_module_takes_no_name_from_the_port(self, path: Path) -> None:
         assert _offending_broker_imports(_source_of(path)) == []
+
+    def test_the_reference_implementation_introduces_no_dependency_on_the_port(self) -> None:
+        """The rule that shaped ``ConstantStrategy``, asserted against it by name.
+
+        A reference implementation that built its own intent would have to name
+        ``SymbolName``, ``OrderSide``, ``Price`` and ``Volume``, and the whole
+        package would carry an edge to :mod:`atlas.broker` to serve a fixture.
+        It is handed a finished intent instead, and whatever needs one builds it
+        in test code.
+        """
+        source = _source_of(STRATEGY_DIR / "reference.py")
+
+        assert _offending_broker_imports(source) == []
+        assert _offending_imports(source) == []
+
+    @pytest.mark.parametrize("name", INTENT_PRIMITIVES)
+    def test_no_strategy_module_names_a_primitive_an_intent_is_stated_in(self, name: str) -> None:
+        offending = {
+            path.name for path in STRATEGY_SOURCES if name in _referenced_names(_source_of(path))
+        }
+
+        assert offending == set()
 
     @pytest.mark.parametrize("path", STRATEGY_SOURCES, ids=lambda path: path.name)
     @pytest.mark.parametrize("symbol", ORDER_CONSTRUCTION_SYMBOLS)
@@ -339,12 +372,13 @@ class TestTheRiskBoundaryWasNotWidened:
             "VerdictStatus",
         }
 
-    @pytest.mark.parametrize("name", PERMITTED_BROKER_NAMES)
+    @pytest.mark.parametrize("name", INTENT_PRIMITIVES)
     def test_risk_does_not_re_export_a_broker_primitive_to_shorten_the_import(
         self, name: str
     ) -> None:
-        """The edge exists either way; a re-export would only disguise it."""
+        """The forbidden import must not become a permitted one by going next door."""
         assert name not in atlas.risk.__all__
+        assert not hasattr(atlas.risk, name)
 
     @pytest.mark.parametrize("path", RISK_SOURCES, ids=lambda path: path.name)
     def test_no_risk_module_imports_the_layer_above_it(self, path: Path) -> None:
@@ -358,7 +392,13 @@ class TestTheRiskBoundaryWasNotWidened:
 
 
 class TestTheContractIsSatisfiable:
-    """An abstraction no one has implemented is an abstraction no one has tried."""
+    """An abstraction no one has implemented is an abstraction no one has tried.
+
+    The intents below are built *here*, in test code, which is the whole reason
+    :mod:`atlas.strategy.reference` imports nothing from the port. Naming
+    ``OrderSide`` is what constructing an intent costs, and a test is where that
+    cost belongs.
+    """
 
     def test_the_reference_implementation_satisfies_the_protocol(self) -> None:
         strategy: Strategy[object] = ConstantStrategy()
@@ -366,11 +406,13 @@ class TestTheContractIsSatisfiable:
         assert isinstance(strategy, Strategy)
 
     def test_a_strategy_may_produce_a_valid_trade_intent(self) -> None:
-        strategy = ConstantStrategy.proposing(
-            symbol="EURUSD",
-            side=OrderSide.BUY,
-            volume=Decimal("0.10"),
-            stop_loss=Decimal("1.0950"),
+        strategy = ConstantStrategy(
+            TradeIntent(
+                symbol="EURUSD",
+                side=OrderSide.BUY,
+                requested_volume=Decimal("0.10"),
+                stop_loss=Decimal("1.0950"),
+            )
         )
 
         intent = strategy.propose(object())
@@ -387,8 +429,8 @@ class TestTheContractIsSatisfiable:
         assert ConstantStrategy().propose(object()) is None
 
     def test_what_a_strategy_produces_is_a_recommendation_and_not_an_order(self) -> None:
-        intent = ConstantStrategy.proposing(
-            symbol="EURUSD", side=OrderSide.SELL, volume=Decimal("1.00")
+        intent = ConstantStrategy(
+            TradeIntent(symbol="EURUSD", side=OrderSide.SELL, requested_volume=Decimal("1.00"))
         ).propose(object())
 
         assert intent is not None

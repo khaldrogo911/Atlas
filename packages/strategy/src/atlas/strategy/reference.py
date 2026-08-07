@@ -32,11 +32,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from atlas.risk import TradeIntent
-
 if TYPE_CHECKING:
-    from atlas.broker import SymbolName
-    from atlas.broker.models import OrderSide, Price, Volume
+    from atlas.risk import TradeIntent
 
 __all__ = ["ConstantStrategy"]
 
@@ -53,12 +50,9 @@ class ConstantStrategy:
 
         ConstantStrategy().propose(anything) is None
 
-    Constructed through :meth:`proposing` it recommends::
+    Handed an intent it recommends that one, always::
 
-        strategy = ConstantStrategy.proposing(
-            symbol="EURUSD", side=OrderSide.BUY, volume=Decimal("0.10")
-        )
-        strategy.propose(anything)  # the same TradeIntent, always
+        ConstantStrategy(intent).propose(anything) is intent
 
     Notes:
         Both answers are first-class. ``None`` is what a strategy with no
@@ -69,60 +63,25 @@ class ConstantStrategy:
     def __init__(self, intent: TradeIntent | None = None) -> None:
         """Fix the single answer this strategy will give.
 
+        The intent is *given* rather than built here, and that is the whole
+        reason this module imports nothing from :mod:`atlas.broker`. A
+        :class:`~atlas.risk.TradeIntent` is stated in ``SymbolName``,
+        ``OrderSide``, ``Price`` and ``Volume``, so whoever constructs one names
+        those four — which makes constructing one the job of the caller, not of
+        a package that must not depend on the port. Whatever needs a concrete
+        intent to hand over builds it itself.
+
+        No validation happens here and none is repeated: an intent that reaches
+        this constructor is already well-formed, because
+        :class:`~atlas.risk.TradeIntent` refused to exist otherwise. A second
+        copy of a validation rule is a second rule, and it diverges.
+
         Args:
             intent: What :meth:`propose` returns. ``None`` — the default —
                 makes a strategy that always abstains, which is the shorter and
                 more useful of the two shapes in a test.
         """
         self._intent = intent
-
-    @classmethod
-    def proposing(
-        cls,
-        *,
-        symbol: SymbolName,
-        side: OrderSide,
-        volume: Volume,
-        stop_loss: Price | None = None,
-        take_profit: Price | None = None,
-    ) -> ConstantStrategy:
-        """Build a strategy that always proposes one intent, described here.
-
-        The named constructor exists so that the intent is built *by a strategy
-        module*, which is the only way this package exercises the permission it
-        was granted: a :class:`~atlas.risk.TradeIntent` is stated in
-        ``SymbolName``, ``OrderSide``, ``Price`` and ``Volume``, so anything
-        that builds one names those four. A reference implementation handed a
-        ready-made intent would import none of them, and the import rule in
-        ``tests/unit/strategy/test_strategy_boundary.py`` would be asserting
-        something about source that does not exist.
-
-        Args:
-            symbol: Instrument the proposal names.
-            side: Direction the proposal names.
-            volume: Quantity to ask for, in lots. The *request*; risk may
-                approve less.
-            stop_loss: Protective stop to propose, if any.
-            take_profit: Profit target to propose, if any.
-
-        Returns:
-            A strategy that answers with exactly that intent, always.
-
-        Raises:
-            ValidationError: If the arguments do not describe a well-formed
-                intent. The check belongs to :class:`~atlas.risk.TradeIntent`
-                and is not repeated here — a second copy of a validation rule is
-                a second rule, and it diverges.
-        """
-        return cls(
-            TradeIntent(
-                symbol=symbol,
-                side=side,
-                requested_volume=volume,
-                stop_loss=stop_loss,
-                take_profit=take_profit,
-            )
-        )
 
     def propose(self, _observation: object, /) -> TradeIntent | None:
         """Return the fixed answer, ignoring the observation completely.

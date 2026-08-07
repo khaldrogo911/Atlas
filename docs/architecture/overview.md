@@ -49,7 +49,7 @@ execution and notification will each want to retry something against a clock,
 and a definition in a feature package would have to be imported upward, which
 the graph forbids.
 
-Four edges between feature packages exist in the graph today, and every one of
+Three edges between feature packages exist in the graph today, and every one of
 them runs downward. `atlas.broker` imports `atlas.common`;
 `tests/unit/broker/test_adapter_contract.py` asserts both halves — that
 `atlas.broker` may reach `atlas.common`, and that it still may not reach anything
@@ -65,19 +65,18 @@ become several, that no risk module can reach an order, and that `atlas.broker`
 still contains no import of `atlas.risk`. See
 [ADR 0010](../adr/0010-the-risk-boundary-is-a-verdict-on-an-intent.md).
 
-`atlas.strategy` imports `atlas.risk`, added by ATLAS-TASK-0012. This is the
-edge the data flow leads with, and it exists now: a `Strategy` is shown an
-observation and answers with a `TradeIntent` or with `None`. It brings a second,
-deliberately narrow edge with it — `atlas.strategy` may take `SymbolName`,
-`OrderSide`, `Price` and `Volume` from `atlas.broker`, because those are the
-four primitives a `TradeIntent` is stated in, and nothing else from that
-package. ADR 0010 anticipated the dependency and accepted it as vocabulary
-rather than a call path; in practice it is a direct import rather than a
-transitive one, because `mypy --strict` with `init_typed` will not accept a bare
-string where an `OrderSide` belongs. `tests/unit/strategy/test_strategy_boundary.py`
-enumerates the four permitted names, asserts that the eight execution symbols
-appear nowhere in the package, and asserts that `atlas.risk` still contains no
-import of `atlas.strategy`.
+`atlas.strategy` imports `atlas.risk`, added by ATLAS-TASK-0012, and imports
+nothing else. This is the edge the data flow leads with, and it exists now: a
+`Strategy` is shown an observation and answers with a `TradeIntent` or with
+`None`. It brings no second edge with it. A module that *constructed* an intent
+would need `SymbolName`, `OrderSide`, `Price` and `Volume` from `atlas.broker`,
+because `mypy --strict` with `init_typed` will not accept a bare string where an
+`OrderSide` belongs — so no module in the package constructs one. The contract
+names `TradeIntent` in an annotation, and the reference implementation is handed
+a finished intent by whoever wants one.
+`tests/unit/strategy/test_strategy_boundary.py` asserts that the package takes
+no name from the port at all, that the eight execution symbols appear nowhere in
+it, and that `atlas.risk` still contains no import of `atlas.strategy`.
 
 `atlas.execution` remains an empty stub, so nothing consumes a `RiskVerdict`
 yet. The consuming half of the flow is still the contract a later task must
@@ -94,7 +93,7 @@ satisfy.
 | `market` | Ingestion, normalisation, integrity, storage | Derive signals or features |
 | `features` | Deterministic feature computation | Read any input timestamped after *t*; perform I/O |
 | `regime` | Market state classification | Decide a trade |
-| `strategy` | Strategy contracts, lifecycle, engine | Place, route or price an order; bypass `risk` |
+| `strategy` | Strategy contracts, lifecycle, engine | Reach a broker; bypass `risk` |
 | `ai` | Inference, LLM assistance, guard rails | Make a decision; substitute for a risk check |
 | `risk` | Sizing, exposure limits, drawdown control, kill switches | — *(authoritative and non-bypassable)* |
 | `execution` | Order lifecycle, routing, fills, reconciliation | Size a position; override a risk verdict |
@@ -107,10 +106,8 @@ satisfy.
 
 **1. Risk is on the critical path.** A trade intent becomes an order only by
 passing through `atlas.risk`. `strategy` emits intents; `execution` acts on
-approved intents. Neither may place, route or price an order — `strategy` and
-`risk` may name the port's primitives, because that is the vocabulary an intent
-and a verdict are written in, but neither can obtain an adapter or construct a
-request. Every other safety property depends on this one.
+approved intents. Neither can reach a broker directly. Every other safety
+property depends on this one.
 
 ATLAS-TASK-0011 gave this invariant its vocabulary: `TradeIntent` is what a
 strategy would like to do, `RiskVerdict` is what risk permits, and only

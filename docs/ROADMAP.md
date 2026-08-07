@@ -23,7 +23,7 @@ and in package documentation. This file is where they resolve to a status.
 | ATLAS-TASK-0009 | The `Clock` abstraction | ✅ Complete | `a400530` |
 | ATLAS-TASK-0010 | Retry and reconnection policy | ✅ Complete | `de7e905` ‡ |
 | ATLAS-TASK-0011 † | The risk boundary: `TradeIntent` and `RiskVerdict` | ✅ Complete | `f54ad613` |
-| ATLAS-TASK-0012 † | The strategy boundary: producing a `TradeIntent` | ✅ Complete | `270f57a8` |
+| ATLAS-TASK-0012 † | The strategy boundary: producing a `TradeIntent` | 🚧 In progress | `PENDING` |
 
 † **Newly specified, not recovered.** The unmarked rows are evidenced by the
 repository record: the task existed, and the commit it cites is the work.
@@ -31,6 +31,12 @@ ATLAS-TASK-0011 and ATLAS-TASK-0012 were each specified and authorised as new
 work during the task itself. Their presence in this table is not evidence that
 either was previously planned, and neither may be described as recovered project
 history or as previously completed.
+
+ATLAS-TASK-0012 is **not complete**, and the row says so. Work exists on a local
+branch, it is not on `main`, and CI has never run on it. The definition at the
+top of this file is the one that governs: a task is Complete when it is merged
+and every gate passed on that commit, and neither has happened. The commit
+column stays `PENDING` until it can cite a commit that is actually on `main`.
 
 ‡ **The gates passed one commit later.** `de7e905` is where ATLAS-TASK-0010's
 work lives and it is on `main`, which is why it is the commit cited. The tree at
@@ -429,7 +435,14 @@ The survivor is equivalent and is left alone: removing `@unique` from
 and `enum.unique` leaves no runtime marker to assert against — it guards a
 future edit rather than a current one.
 
+## In progress
+
 ### ATLAS-TASK-0012 — the strategy boundary
+
+**Not complete.** What follows describes work on a local branch. It is not on
+`main`, no PR exists, and no CI run has covered it. It is recorded here rather
+than under **Completed** because the definition of Complete at the top of this
+file is not met, and describing it as met would make this file wrong.
 
 Newly specified rather than recovered from the repository record — see the note
 marked † under the status table.
@@ -461,31 +474,32 @@ a sentinel meaning "ignore me" — puts a value into the pipeline that looks
 tradeable, and the first consumer that forgets to check it sends it to risk.
 There is no such object to forget about.
 
-**Four names from the port, and eight that are refused.** A `TradeIntent` is
-stated in `SymbolName`, `OrderSide`, `Price` and `Volume`, so anything that
-builds one names them; `BrokerAdapter`, `OrderRequest`, `OrderType`,
-`OrderStatus` and the four order verbs appear nowhere in the package.
-[ADR-0010](adr/0010-the-risk-boundary-is-a-verdict-on-an-intent.md) anticipated
-this edge and accepted it in advance as vocabulary rather than a call path. It
-predicted a *transitive* dependency; under `mypy --strict` with `init_typed` the
-import is direct, because `TradeIntent(side="BUY")` is a type error even though
-the string works at runtime. The reasoning is unchanged and the import is now
-visible and enumerated rather than assumed. The primitives were deliberately not
-re-exported through `atlas.risk` to shorten it: the edge exists either way, and a
-re-export would only widen a boundary in order to disguise one.
+**No dependency on `atlas.broker` at all.** `atlas.risk` is the only `atlas`
+package a strategy module imports. A `TradeIntent` is stated in `SymbolName`,
+`OrderSide`, `Price` and `Volume`, and under `mypy --strict` with `init_typed`
+anything that *builds* one must name them — `TradeIntent(side="BUY")` is a type
+error even though the string works at runtime. The conclusion drawn is that
+nothing in the package builds one: the contract names `TradeIntent` in an
+annotation, and a concrete intent is constructed by whoever hands one over,
+which today is test code. `BrokerAdapter`, `OrderRequest`, `OrderType`,
+`OrderStatus` and the four order verbs appear nowhere in the package, and
+nothing was re-exported through `atlas.risk` to get around the rule.
 
 **An inert reference implementation.** `atlas/strategy/reference.py` holds
 `ConstantStrategy`, which answers with the intent it was constructed with,
 whatever it is shown — `ConstantStrategy()` abstains and
-`ConstantStrategy.proposing(...)` recommends.
-It reads no market data, performs no I/O, holds no clock, draws no
-randomness and calls no venue, and the tests assert each of those against its
-source rather than trusting the sentence. That inertness is the design: a
-reference implementation that could see a price is one edit away from being a
-trading strategy, and it is the kind of edit nobody reviews closely because the
-file already existed. It is not exported from `atlas.strategy`, for the reason
-`MockBrokerAdapter` is absent from `atlas.broker`. It makes no claim about
-profitability and must not be deployed or extended into something that trades.
+`ConstantStrategy(intent)` recommends that intent. It reads no market data,
+performs no I/O, holds no clock, draws no randomness, calls no venue and raises
+nothing of its own, and the tests assert each of those against its source rather
+than trusting the sentence. That inertness is the design: a reference
+implementation that could see a price is one edit away from being a trading
+strategy, and it is the kind of edit nobody reviews closely because the file
+already existed. It takes a finished intent rather than building one from
+`symbol`, `side` and `volume`, which reads less nicely and is what keeps the
+port out of the package. It is not exported from `atlas.strategy`, for the
+reason `MockBrokerAdapter` is absent from `atlas.broker`. It makes no claim
+about profitability and must not be deployed or extended into something that
+trades.
 
 **What this task does not claim.** There is no lifecycle, no registry, no engine,
 no scheduling and no event subscription — the rest of what the responsibilities
@@ -494,18 +508,25 @@ consumes a `RiskVerdict`, and the behavioural half of the first invariant still
 waits on a pipeline to observe. No risk control, sizing rule or real strategy was
 written.
 
-No ADR was added. The decisions above are recorded in the module docstrings, in
-`packages/strategy/src/atlas/strategy/README.md` and in the boundary test,
-following ATLAS-TASK-0007's precedent; ADR-0010 had already recorded the one
-architectural choice this task depends on.
+**No ADR was added, and none was reversed.**
+[ADR-0010](adr/0010-the-risk-boundary-is-a-verdict-on-an-intent.md) records that
+`atlas.strategy` would depend on the port's types *transitively*, quotes the
+strategy stub's "nothing here may reach a broker directly", and rules that the
+wording survives that. This task takes no such dependency, so the ADR's ruling
+stands untouched and the sentence it quotes is still in the stub verbatim. The
+decisions above are recorded in the module docstrings, in
+`packages/strategy/src/atlas/strategy/README.md` and in the boundary test.
 
-146 tests were added — 82 for the boundary and 64 for the reference
-implementation — of which 43 exist only to assert that the AST scanners can
-actually fail, because a scan that inspects nothing passes everything. The
-boundary was additionally checked by injecting a real violation into
-`contracts.py` — `import atlas.execution` and
-`from atlas.broker import BrokerAdapter` — and confirming that five distinct
-tests failed on it before the file was restored.
+A later task that gives a real strategy the job of constructing its own intent
+will meet the question this one sidestepped — that strategy will have to name
+the four primitives — and it should answer it by amending or superseding
+ADR-0010, not in prose.
+
+Tests were added for the boundary and for the reference implementation, a
+substantial share of which exist only to assert that the AST scanners can
+actually fail, because a scan that inspects nothing passes everything. Exact
+counts and gate results are not recorded here until CI has produced them; the
+numbers that belong in this file are the ones a CI run can be pointed at.
 
 ## Known documentation debt
 

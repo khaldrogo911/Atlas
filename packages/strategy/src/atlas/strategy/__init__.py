@@ -5,8 +5,8 @@ drives registered strategies against incoming events to produce proposed
 trade intents.
 
 Boundary:
-    Emits intents, not orders. Nothing here may place, route or price an order,
-    and nothing here may bypass ``atlas.risk``.
+    Emits intents, not orders. Nothing here may reach a broker directly, and
+    nothing here may bypass ``atlas.risk``.
 
 Atlas is recommendation-first, and this package is where a recommendation comes
 from. A :class:`~atlas.strategy.contracts.Strategy` is shown an observation and
@@ -15,14 +15,14 @@ to an intent afterwards is not this package's to assume: :mod:`atlas.risk`
 judges it, and only :mod:`atlas.execution` may turn an approved verdict into an
 order.
 
-The four names a strategy may take from :mod:`atlas.broker` — ``SymbolName``,
-``OrderSide``, ``Price`` and ``Volume`` — are the vocabulary a
-:class:`~atlas.risk.TradeIntent` is stated in, and taking them is how a strategy
-avoids inventing a second definition of a price. That is a type dependency and
-not a call path: no module here can obtain a ``BrokerAdapter``, name an
-``OrderRequest`` or reach a venue, and
-``tests/unit/strategy/test_strategy_boundary.py`` asserts each of those
-separately.
+:mod:`atlas.risk` is the one ``atlas`` package a module here imports, and
+:mod:`atlas.broker` is deliberately not among them. An intent is *stated* in the
+port's primitives, but naming them is the job of whatever constructs one, and
+nothing in this package constructs one — the contract names
+:class:`~atlas.risk.TradeIntent` in an annotation and stops there. No module
+here can obtain a ``BrokerAdapter``, name an ``OrderRequest`` or reach a venue,
+and ``tests/unit/strategy/test_strategy_boundary.py`` asserts each of those
+separately by walking the AST of every module in the package.
 
 ATLAS-TASK-0001 established this package as an empty, importable unit with a
 declared responsibility. ATLAS-TASK-0012 delivered the first of it: the contract

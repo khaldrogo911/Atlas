@@ -36,10 +36,11 @@ Nothing is the answer to "no opinion"
 
 Boundary:
     A strategy proposes; it does not decide and it does not place. Nothing in
-    this package may reach :mod:`atlas.execution`, and the only names it may
-    take from :mod:`atlas.broker` are the four primitives a
-    :class:`~atlas.risk.TradeIntent` is stated in. See this package's README,
-    and ``tests/unit/strategy/test_strategy_boundary.py``, which asserts both by
+    this package may reach :mod:`atlas.execution`, and nothing here may reach a
+    broker directly — :mod:`atlas.risk` is the one ``atlas`` package a module
+    here imports, and :class:`~atlas.risk.TradeIntent` is the one contract it
+    names. See this package's README, and
+    ``tests/unit/strategy/test_strategy_boundary.py``, which asserts both by
     walking the AST of every module here rather than by trusting this
     paragraph.
 """

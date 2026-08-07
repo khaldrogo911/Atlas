@@ -89,11 +89,23 @@ about.
 
 ---
 
-## The four names taken from `atlas.broker`
+## Nothing is taken from `atlas.broker`
 
-A `TradeIntent` is stated in `SymbolName`, `OrderSide`, `Price` and `Volume`, so
-anything that builds one names those four. A strategy module may import exactly
-those, from `atlas.broker` or `atlas.broker.models`, and nothing else.
+`atlas.risk` is the one `atlas` package a module here imports. The port is not
+on the list, and neither are the four primitives a `TradeIntent` happens to be
+stated in.
+
+That last part is the decision worth explaining, because it is not the obvious
+one. A `TradeIntent` is stated in `SymbolName`, `OrderSide`, `Price` and
+`Volume`, so anything that *builds* one names those four — `mypy` runs strict
+with `init_typed = True`, so `TradeIntent(side="BUY")` is an error even though
+`OrderSide` is a `StrEnum` and the string works perfectly at runtime.
+
+The conclusion drawn from that is not "so the package may import them". It is
+**so nothing in this package builds an intent.** The contract names
+`TradeIntent` in an annotation and stops; `ConstantStrategy` is handed a
+finished one. Whatever hands it over pays the import, and today that is test
+code.
 
 **Forbidden, and each for its own reason:** `BrokerAdapter` is a route to a
 venue. `OrderRequest`, `OrderType` and `OrderStatus` are execution's vocabulary
@@ -101,29 +113,22 @@ venue. `OrderRequest`, `OrderType` and `OrderStatus` are execution's vocabulary
 `place_order`, `modify_order`, `cancel_order` and `close_position` are the acts
 themselves.
 
-ADR-0010 anticipated this edge and accepted it in advance, under the heading
-that a transitive type dependency is not a call path: "Strategy depends on the
-vocabulary the port defines, not on the port — it still cannot obtain a
-`BrokerAdapter`, cannot construct an `OrderRequest`, and has no route to place
-anything."
-
-In practice the dependency is *direct* rather than transitive, and the type
-checker is what makes it so. `mypy` runs strict with `init_typed = True`, so
-`TradeIntent(side="BUY")` is an error even though `OrderSide` is a `StrEnum` and
-the string works perfectly at runtime. A strategy that constructs an intent and
-passes CI must therefore name `OrderSide` itself. The reasoning ADR-0010
-recorded is unchanged — vocabulary, not port — but the import is real, visible,
-and enumerated rather than assumed.
-
-The four names are **not** re-exported through `atlas.risk` to make the import
-look shorter. A re-export would widen the risk package's surface in order to
-disguise an edge that exists either way, and the honest version is the one a
-reader can see.
+Nothing is re-exported through `atlas.risk` to get around this either. A
+re-export would widen the risk package's surface in order to disguise an edge,
+and the boundary test asserts that `atlas.risk` exports none of the four.
 
 `tests/unit/strategy/test_strategy_boundary.py` asserts all of this by walking
 the AST of every module in this package rather than by trusting the paragraphs
 above — permitted imports, forbidden imports, forbidden names, and that
 `atlas.risk` still contains no import of `atlas.strategy`.
+
+> **Open past this task.** ADR-0010 anticipated that `atlas.strategy` would
+> depend on the port's types *transitively*, and accepted that in advance as
+> vocabulary rather than a call path. ATLAS-TASK-0012 does not take even that
+> dependency, so nothing here contradicts the record. A later task that gives a
+> real strategy the job of constructing its own intent will have to face the
+> question this one avoided, and it should answer it in an ADR rather than in a
+> README.
 
 ---
 
@@ -132,11 +137,8 @@ above — permitted imports, forbidden imports, forbidden names, and that
 ```python
 from atlas.strategy.reference import ConstantStrategy
 
-ConstantStrategy().propose(anything)                       # None — abstains
-
-ConstantStrategy.proposing(
-    symbol="EURUSD", side=OrderSide.BUY, volume=Decimal("0.10")
-).propose(anything)                                        # the same TradeIntent, always
+ConstantStrategy().propose(anything)        # None — abstains
+ConstantStrategy(intent).propose(anything)  # that same TradeIntent, always
 ```
 
 An abstraction with no implementations is an abstraction nobody has tried.
@@ -167,11 +169,12 @@ It is **not** exported from `atlas.strategy` — the same reason
 that appears in the package's public surface is one an unrelated caller can
 reach for by accident.
 
-The named constructor is why the package imports the broker primitives at all.
-`proposing` builds the intent *in a strategy module*, which is the only way this
-package exercises the permission it was granted; a reference implementation
-handed a ready-made intent would import none of the four, and the import rule
-would be asserting something about source that does not exist.
+It takes its intent as a constructor argument rather than building one, and that
+is what keeps the port out of this package. A named constructor taking
+`symbol`, `side` and `volume` would read more nicely at a call site and would
+cost `atlas.strategy` a dependency on `atlas.broker` — a real architectural edge,
+carried by every module in the package forever, to save a test three lines. The
+test builds the intent instead.
 
 ---
 

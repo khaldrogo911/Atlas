@@ -10,6 +10,13 @@ reaches for it by accident.
 A reference implementation that could see a price is one edit away from being a
 trading strategy, and the edit is the kind nobody reviews closely because the
 file already existed. These tests are what make that edit visible.
+
+It is *handed* the intent it returns rather than building one, which is what
+keeps :mod:`atlas.broker` out of the strategy package entirely: constructing a
+:class:`~atlas.risk.TradeIntent` means naming the four primitives it is stated
+in, so the construction happens here, in test code, where that dependency is
+allowed. ``tests/unit/strategy/test_strategy_boundary.py`` asserts the
+production side of the same rule.
 """
 
 from __future__ import annotations
@@ -131,9 +138,7 @@ class TestItObservesNothing:
 
     def test_its_answer_depends_only_on_how_it_was_built(self) -> None:
         """Asked a hundred times, it says the same thing a hundred times."""
-        strategy = ConstantStrategy.proposing(
-            symbol="EURUSD", side=OrderSide.BUY, volume=Decimal("0.10")
-        )
+        strategy = ConstantStrategy(_an_intent())
 
         answers = {strategy.propose(index) for index in range(100)}
 
@@ -157,18 +162,8 @@ class TestBothAnswersAreFirstClass:
 
         assert ConstantStrategy(intent).propose(object()) is intent
 
-    def test_the_named_constructor_builds_the_intent_it_describes(self) -> None:
-        strategy = ConstantStrategy.proposing(
-            symbol="XAUUSD",
-            side=OrderSide.SELL,
-            volume=Decimal("0.02"),
-            stop_loss=Decimal("2410.00"),
-            take_profit=Decimal("2380.00"),
-        )
-
-        intent = strategy.propose(object())
-
-        assert intent == TradeIntent(
+    def test_it_returns_a_fully_specified_intent_unchanged(self) -> None:
+        intent = TradeIntent(
             symbol="XAUUSD",
             side=OrderSide.SELL,
             requested_volume=Decimal("0.02"),
@@ -176,10 +171,10 @@ class TestBothAnswersAreFirstClass:
             take_profit=Decimal("2380.00"),
         )
 
-    def test_the_levels_are_optional(self) -> None:
-        intent = ConstantStrategy.proposing(
-            symbol="EURUSD", side=OrderSide.BUY, volume=Decimal("0.10")
-        ).propose(object())
+        assert ConstantStrategy(intent).propose(object()) == intent
+
+    def test_the_levels_are_optional_because_the_contract_says_so(self) -> None:
+        intent = ConstantStrategy(_an_intent()).propose(object())
 
         assert intent is not None
         assert intent.stop_loss is None
@@ -187,26 +182,44 @@ class TestBothAnswersAreFirstClass:
 
 
 class TestValidationBelongsToTheContract:
-    """A second copy of a validation rule is a second rule, and it diverges."""
+    """A second copy of a validation rule is a second rule, and it diverges.
+
+    Every rejection below comes from :class:`~atlas.risk.TradeIntent`, and the
+    reference implementation is not in the path — it cannot be, because it never
+    constructs an intent. That is the same decision that keeps
+    :mod:`atlas.broker` out of this package: whatever builds an intent names the
+    port's primitives and enforces the port's rules, and neither job is a
+    strategy's.
+    """
 
     @pytest.mark.parametrize("volume", [Decimal("0"), Decimal("-1")])
-    def test_a_volume_the_contract_refuses_is_refused_here(self, volume: Decimal) -> None:
+    def test_the_contract_refuses_a_volume_before_a_strategy_ever_sees_it(
+        self, volume: Decimal
+    ) -> None:
         with pytest.raises(ValidationError):
-            ConstantStrategy.proposing(symbol="EURUSD", side=OrderSide.BUY, volume=volume)
+            TradeIntent(symbol="EURUSD", side=OrderSide.BUY, requested_volume=volume)
 
-    def test_a_price_the_contract_refuses_is_refused_here(self) -> None:
+    def test_the_contract_refuses_a_negative_price_before_a_strategy_ever_sees_it(self) -> None:
         with pytest.raises(ValidationError):
-            ConstantStrategy.proposing(
+            TradeIntent(
                 symbol="EURUSD",
                 side=OrderSide.BUY,
-                volume=Decimal("0.10"),
+                requested_volume=Decimal("0.10"),
                 stop_loss=Decimal("-1"),
             )
 
-    def test_a_refused_intent_leaves_no_strategy_behind(self) -> None:
-        """The failure is at construction, so there is nothing half-built to call."""
-        with pytest.raises(ValidationError):
-            ConstantStrategy.proposing(symbol="EURUSD", side=OrderSide.BUY, volume=Decimal("0"))
+    def test_the_reference_implementation_rejects_nothing_of_its_own(self) -> None:
+        """No ``raise`` anywhere in it, so it can add no rule of its own to diverge."""
+        raises = [
+            node for node in ast.walk(ast.parse(REFERENCE_SOURCE)) if isinstance(node, ast.Raise)
+        ]
+
+        assert raises == []
+
+    def test_an_intent_that_exists_is_accepted_without_re_checking(self) -> None:
+        intent = _an_intent()
+
+        assert ConstantStrategy(intent).propose(object()) is intent
 
 
 class TestItIsNotPartOfThePublicSurface:
