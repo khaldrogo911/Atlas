@@ -23,7 +23,7 @@ and in package documentation. This file is where they resolve to a status.
 | ATLAS-TASK-0009 | The `Clock` abstraction | ✅ Complete | `a400530` |
 | ATLAS-TASK-0010 | Retry and reconnection policy | ✅ Complete | `de7e905` ‡ |
 | ATLAS-TASK-0011 † | The risk boundary: `TradeIntent` and `RiskVerdict` | ✅ Complete | `f54ad613` |
-| ATLAS-TASK-0012 † | The strategy boundary: producing a `TradeIntent` | ✅ Complete | `PENDING` |
+| ATLAS-TASK-0012 † | The strategy boundary: producing a `TradeIntent` | ✅ Complete | `270f57a8` |
 
 † **Newly specified, not recovered.** The unmarked rows are evidenced by the
 repository record: the task existed, and the commit it cites is the work.
