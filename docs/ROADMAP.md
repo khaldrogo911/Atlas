@@ -23,13 +23,20 @@ and in package documentation. This file is where they resolve to a status.
 | ATLAS-TASK-0009 | The `Clock` abstraction | ✅ Complete | `a400530` |
 | ATLAS-TASK-0010 | Retry and reconnection policy | ✅ Complete | `de7e905` ‡ |
 | ATLAS-TASK-0011 † | The risk boundary: `TradeIntent` and `RiskVerdict` | ✅ Complete | `f54ad613` |
+| ATLAS-TASK-0012 † | The strategy boundary: producing a `TradeIntent` | 🚧 In progress | `PENDING` |
 
-† **Newly specified, not recovered.** Every other row is evidenced by the
+† **Newly specified, not recovered.** The unmarked rows are evidenced by the
 repository record: the task existed, and the commit it cites is the work.
-ATLAS-TASK-0011 was specified and authorised as new work during the task itself.
-Its presence in this table is not evidence that it was previously planned, and
-it must not be described as recovered project history or as previously
-completed.
+ATLAS-TASK-0011 and ATLAS-TASK-0012 were each specified and authorised as new
+work during the task itself. Their presence in this table is not evidence that
+either was previously planned, and neither may be described as recovered project
+history or as previously completed.
+
+ATLAS-TASK-0012 is **not complete**, and the row says so. Work exists on a local
+branch, it is not on `main`, and CI has never run on it. The definition at the
+top of this file is the one that governs: a task is Complete when it is merged
+and every gate passed on that commit, and neither has happened. The commit
+column stays `PENDING` until it can cite a commit that is actually on `main`.
 
 ‡ **The gates passed one commit later.** `de7e905` is where ATLAS-TASK-0010's
 work lives and it is on `main`, which is why it is the commit cited. The tree at
@@ -38,8 +45,8 @@ was first green at `6cca03d`, which corrected a flaky clock test. The citation
 is left as the feature commit — the history is not rewritten — and the gap
 against the definition of **Complete** above is recorded here instead.
 
-Nothing beyond ATLAS-TASK-0011 is defined, and nothing here declares what
-ATLAS-TASK-0012 will be. The tasks above are the ones the repository itself
+Nothing beyond ATLAS-TASK-0012 is defined, and nothing here declares what
+ATLAS-TASK-0013 will be. The tasks above are the ones the repository itself
 declares; this file does not speculate past them.
 
 ## Completed
@@ -427,6 +434,99 @@ The survivor is equivalent and is left alone: removing `@unique` from
 `VerdictStatus` changes no behaviour while the members' values stay distinct,
 and `enum.unique` leaves no runtime marker to assert against — it guards a
 future edit rather than a current one.
+
+## In progress
+
+### ATLAS-TASK-0012 — the strategy boundary
+
+**Not complete.** What follows describes work on a local branch. It is not on
+`main`, no PR exists, and no CI run has covered it. It is recorded here rather
+than under **Completed** because the definition of Complete at the top of this
+file is not met, and describing it as met would make this file wrong.
+
+Newly specified rather than recovered from the repository record — see the note
+marked † under the status table.
+
+`atlas/strategy/contracts.py`: `Strategy`, a runtime-checkable protocol with one
+method, `propose(observation, /) -> TradeIntent | None`. ATLAS-TASK-0011 gave the
+first invariant its vocabulary; this gives it a producer. A strategy is the only
+thing in Atlas that originates a `TradeIntent`, and returning one or returning
+`None` is the whole of its authority.
+
+**A protocol, not a base class.** Structural typing, for the reason
+`atlas/broker/protocols.py` gives for the capability protocols: nothing has to
+inherit from these. A strategy is a behaviour, and a required base class would
+mean a research notebook, a replay harness and a live component could not be the
+same thing unless all three imported it. It would also hand this package a
+concrete class to put shared behaviour in, and the first thing that lands in one
+is a lifecycle — which this task does not own.
+
+**The input is a type parameter this package does not name.** `Strategy[InputT]`
+is generic because what a strategy looks at belongs to `atlas.market`,
+`atlas.features` and `atlas.regime`, which are all still stubs. Naming a
+concrete input here would fix their shape before they exist, from the package
+with the least standing to do it. No market-data contract is defined by this
+task. `observation` is positional-only, so an implementation may name it
+whatever reads best.
+
+**`None` is the answer to "no opinion".** The alternative — an empty intent, or
+a sentinel meaning "ignore me" — puts a value into the pipeline that looks
+tradeable, and the first consumer that forgets to check it sends it to risk.
+There is no such object to forget about.
+
+**No dependency on `atlas.broker` at all.** `atlas.risk` is the only `atlas`
+package a strategy module imports. A `TradeIntent` is stated in `SymbolName`,
+`OrderSide`, `Price` and `Volume`, and under `mypy --strict` with `init_typed`
+anything that *builds* one must name them — `TradeIntent(side="BUY")` is a type
+error even though the string works at runtime. The conclusion drawn is that
+nothing in the package builds one: the contract names `TradeIntent` in an
+annotation, and a concrete intent is constructed by whoever hands one over,
+which today is test code. `BrokerAdapter`, `OrderRequest`, `OrderType`,
+`OrderStatus` and the four order verbs appear nowhere in the package, and
+nothing was re-exported through `atlas.risk` to get around the rule.
+
+**An inert reference implementation.** `atlas/strategy/reference.py` holds
+`ConstantStrategy`, which answers with the intent it was constructed with,
+whatever it is shown — `ConstantStrategy()` abstains and
+`ConstantStrategy(intent)` recommends that intent. It reads no market data,
+performs no I/O, holds no clock, draws no randomness, calls no venue and raises
+nothing of its own, and the tests assert each of those against its source rather
+than trusting the sentence. That inertness is the design: a reference
+implementation that could see a price is one edit away from being a trading
+strategy, and it is the kind of edit nobody reviews closely because the file
+already existed. It takes a finished intent rather than building one from
+`symbol`, `side` and `volume`, which reads less nicely and is what keeps the
+port out of the package. It is not exported from `atlas.strategy`, for the
+reason `MockBrokerAdapter` is absent from `atlas.broker`. It makes no claim
+about profitability and must not be deployed or extended into something that
+trades.
+
+**What this task does not claim.** There is no lifecycle, no registry, no engine,
+no scheduling and no event subscription — the rest of what the responsibilities
+table gives `strategy`. `atlas.execution` remains an empty stub, so nothing
+consumes a `RiskVerdict`, and the behavioural half of the first invariant still
+waits on a pipeline to observe. No risk control, sizing rule or real strategy was
+written.
+
+**No ADR was added, and none was reversed.**
+[ADR-0010](adr/0010-the-risk-boundary-is-a-verdict-on-an-intent.md) records that
+`atlas.strategy` would depend on the port's types *transitively*, quotes the
+strategy stub's "nothing here may reach a broker directly", and rules that the
+wording survives that. This task takes no such dependency, so the ADR's ruling
+stands untouched and the sentence it quotes is still in the stub verbatim. The
+decisions above are recorded in the module docstrings, in
+`packages/strategy/src/atlas/strategy/README.md` and in the boundary test.
+
+A later task that gives a real strategy the job of constructing its own intent
+will meet the question this one sidestepped — that strategy will have to name
+the four primitives — and it should answer it by amending or superseding
+ADR-0010, not in prose.
+
+Tests were added for the boundary and for the reference implementation, a
+substantial share of which exist only to assert that the AST scanners can
+actually fail, because a scan that inspects nothing passes everything. Exact
+counts and gate results are not recorded here until CI has produced them; the
+numbers that belong in this file are the ones a CI run can be pointed at.
 
 ## Known documentation debt
 

@@ -1,14 +1,16 @@
 # Architecture Overview
 
-> **Status at ATLAS-TASK-0011.** This document describes the intended
+> **Status at ATLAS-TASK-0012.** This document describes the intended
 > architecture and the boundaries the repository is built to enforce. Three
 > packages hold implementation: `atlas.config` in full, `atlas.broker` (domain
 > models, the `BrokerAdapter` port, two adapters, the exception hierarchy) and
 > `atlas.common` (clock, retry). `atlas.risk` holds its two boundary contracts
-> and none of the controls that reach a decision. Every other package remains an
-> empty, importable unit with a declared responsibility. Where this document
-> describes behaviour, read it as the contract a later task must satisfy, not as
-> a description of code that exists.
+> and none of the controls that reach a decision. `atlas.strategy` holds the
+> contract a strategy satisfies and an inert reference implementation of it, and
+> none of the lifecycle, registry or engine its responsibility names. Every other
+> package remains an empty, importable unit with a declared responsibility. Where
+> this document describes behaviour, read it as the contract a later task must
+> satisfy, not as a description of code that exists.
 
 ## Shape
 
@@ -47,8 +49,8 @@ execution and notification will each want to retry something against a clock,
 and a definition in a feature package would have to be imported upward, which
 the graph forbids.
 
-Two edges between feature packages exist in the graph today, and both run
-downward. `atlas.broker` imports `atlas.common`;
+Three edges between feature packages exist in the graph today, and every one of
+them runs downward. `atlas.broker` imports `atlas.common`;
 `tests/unit/broker/test_adapter_contract.py` asserts both halves — that
 `atlas.broker` may reach `atlas.common`, and that it still may not reach anything
 above the port. See [ADR 0008](../adr/0008-time-is-injected.md) and
@@ -63,11 +65,22 @@ become several, that no risk module can reach an order, and that `atlas.broker`
 still contains no import of `atlas.risk`. See
 [ADR 0010](../adr/0010-the-risk-boundary-is-a-verdict-on-an-intent.md).
 
-The edge the data flow leads with — `strategy → risk` — does **not** yet exist
-as an implemented dependency. `atlas.strategy` and `atlas.execution` are still
-empty stubs at ATLAS-TASK-0011, so there is nothing producing a `TradeIntent`
-and nothing consuming a `RiskVerdict`. What exists is the vocabulary both will
-be written against.
+`atlas.strategy` imports `atlas.risk`, added by ATLAS-TASK-0012, and imports
+nothing else. This is the edge the data flow leads with, and it exists now: a
+`Strategy` is shown an observation and answers with a `TradeIntent` or with
+`None`. It brings no second edge with it. A module that *constructed* an intent
+would need `SymbolName`, `OrderSide`, `Price` and `Volume` from `atlas.broker`,
+because `mypy --strict` with `init_typed` will not accept a bare string where an
+`OrderSide` belongs — so no module in the package constructs one. The contract
+names `TradeIntent` in an annotation, and the reference implementation is handed
+a finished intent by whoever wants one.
+`tests/unit/strategy/test_strategy_boundary.py` asserts that the package takes
+no name from the port at all, that the eight execution symbols appear nowhere in
+it, and that `atlas.risk` still contains no import of `atlas.strategy`.
+
+`atlas.execution` remains an empty stub, so nothing consumes a `RiskVerdict`
+yet. The consuming half of the flow is still the contract a later task must
+satisfy.
 
 ## Package responsibilities
 
@@ -100,9 +113,14 @@ ATLAS-TASK-0011 gave this invariant its vocabulary: `TradeIntent` is what a
 strategy would like to do, `RiskVerdict` is what risk permits, and only
 `atlas.execution` turns an approved verdict into an `OrderRequest`. Risk decides;
 it does not place. A reduced-size approval is an approval carrying a smaller
-number, not a third answer. The structural half of the invariant — that risk
-exposes no path to an order — is enforced by test today; the behavioural half
-waits on the packages either side of it existing.
+number, not a third answer.
+
+ATLAS-TASK-0012 gave it a producer: a `Strategy` is the only thing in Atlas that
+originates a `TradeIntent`, and its whole authority is to return one or to
+return `None`. The structural half of the invariant — that neither package
+exposes a path to an order — is enforced by test today; the behavioural half,
+that a running pipeline routes every intent through risk, waits on `execution`
+and an engine existing.
 
 **2. AI is advisory.** `atlas.ai` produces inputs to decisions. A model output
 never becomes an order without passing the same risk gate as any other intent,
