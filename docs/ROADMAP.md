@@ -23,7 +23,7 @@ and in package documentation. This file is where they resolve to a status.
 | ATLAS-TASK-0009 | The `Clock` abstraction | ✅ Complete | `a400530` |
 | ATLAS-TASK-0010 | Retry and reconnection policy | ✅ Complete | `de7e905` ‡ |
 | ATLAS-TASK-0011 † | The risk boundary: `TradeIntent` and `RiskVerdict` | ✅ Complete | `f54ad613` |
-| ATLAS-TASK-0012 † | The strategy boundary: producing a `TradeIntent` | 🚧 In progress | `PENDING` |
+| ATLAS-TASK-0012 † | The strategy boundary: producing a `TradeIntent` | ✅ Complete | `2e567aa5` |
 
 † **Newly specified, not recovered.** The unmarked rows are evidenced by the
 repository record: the task existed, and the commit it cites is the work.
@@ -32,11 +32,12 @@ work during the task itself. Their presence in this table is not evidence that
 either was previously planned, and neither may be described as recovered project
 history or as previously completed.
 
-ATLAS-TASK-0012 is **not complete**, and the row says so. Work exists on a local
-branch, it is not on `main`, and CI has never run on it. The definition at the
-top of this file is the one that governs: a task is Complete when it is merged
-and every gate passed on that commit, and neither has happened. The commit
-column stays `PENDING` until it can cite a commit that is actually on `main`.
+ATLAS-TASK-0012 cites the branch tip rather than the branch's first commit.
+`270f57a8` added the package and `2e567aa5` removed the dependency on
+`atlas.broker` that it had taken, so `2e567aa5` is the state that reached
+`main`. The gates passed on that tree twice — once on the pull request and
+again on the merge commit `e909b4b`, whose tree is identical — so unlike
+`de7e905` below there is no gap here against the definition above.
 
 ‡ **The gates passed one commit later.** `de7e905` is where ATLAS-TASK-0010's
 work lives and it is on `main`, which is why it is the commit cited. The tree at
@@ -435,14 +436,7 @@ The survivor is equivalent and is left alone: removing `@unique` from
 and `enum.unique` leaves no runtime marker to assert against — it guards a
 future edit rather than a current one.
 
-## In progress
-
 ### ATLAS-TASK-0012 — the strategy boundary
-
-**Not complete.** What follows describes work on a local branch. It is not on
-`main`, no PR exists, and no CI run has covered it. It is recorded here rather
-than under **Completed** because the definition of Complete at the top of this
-file is not met, and describing it as met would make this file wrong.
 
 Newly specified rather than recovered from the repository record — see the note
 marked † under the status table.
@@ -522,11 +516,14 @@ will meet the question this one sidestepped — that strategy will have to name
 the four primitives — and it should answer it by amending or superseding
 ADR-0010, not in prose.
 
-Tests were added for the boundary and for the reference implementation, a
-substantial share of which exist only to assert that the AST scanners can
-actually fail, because a scan that inspects nothing passes everything. Exact
-counts and gate results are not recorded here until CI has produced them; the
-numbers that belong in this file are the ones a CI run can be pointed at.
+155 tests were added — 90 for the boundary and 65 for the reference
+implementation, 45 of which exist only to assert that the AST scanners can
+actually fail, because a scan that inspects nothing passes everything. CI was
+green on the merge commit: Ruff, Black and MyPy clean across 94 source files,
+3072 passed and 105 skipped of 3177 collected, and total coverage at 99%. The
+105 skips are the MetaTrader5 vendor-comparison tests, whose wheel installs on
+Windows only; they skip on every Linux run and none of them belong to this
+task.
 
 ## Known documentation debt
 
