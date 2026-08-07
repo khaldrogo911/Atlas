@@ -1,11 +1,14 @@
 # Architecture Overview
 
-> **Status at ATLAS-TASK-0001.** This document describes the intended
-> architecture and the boundaries the repository is built to enforce. Only
-> `atlas.config` is implemented; every other package is an empty, importable
-> unit with a declared responsibility. Where this document describes behaviour,
-> read it as the contract a later task must satisfy, not as a description of
-> code that exists.
+> **Status at ATLAS-TASK-0011.** This document describes the intended
+> architecture and the boundaries the repository is built to enforce. Three
+> packages hold implementation: `atlas.config` in full, `atlas.broker` (domain
+> models, the `BrokerAdapter` port, two adapters, the exception hierarchy) and
+> `atlas.common` (clock, retry). `atlas.risk` holds its two boundary contracts
+> and none of the controls that reach a decision. Every other package remains an
+> empty, importable unit with a declared responsibility. Where this document
+> describes behaviour, read it as the contract a later task must satisfy, not as
+> a description of code that exists.
 
 ## Shape
 
@@ -44,12 +47,27 @@ execution and notification will each want to retry something against a clock,
 and a definition in a feature package would have to be imported upward, which
 the graph forbids.
 
-`atlas.broker` imports `atlas.common`, which is still the only edge between two
-feature packages in the graph today. It runs in the permitted direction, and
-`tests/unit/broker/test_adapter_contract.py` asserts both halves: that
+Two edges between feature packages exist in the graph today, and both run
+downward. `atlas.broker` imports `atlas.common`;
+`tests/unit/broker/test_adapter_contract.py` asserts both halves — that
 `atlas.broker` may reach `atlas.common`, and that it still may not reach anything
 above the port. See [ADR 0008](../adr/0008-time-is-injected.md) and
 [ADR 0009](../adr/0009-retry-is-a-value-and-the-waiting-is-the-clocks.md).
+
+`atlas.risk` imports `atlas.broker`, added by ATLAS-TASK-0011. The risk
+contracts are stated in the port's own `SymbolName`, `OrderSide`, `Price` and
+`Volume` rather than in risk-local copies, because two definitions of one
+concept diverge — and would diverge exactly at the boundary risk exists to
+hold. `tests/unit/risk/test_risk_boundary.py` asserts that the edge did not
+become several, that no risk module can reach an order, and that `atlas.broker`
+still contains no import of `atlas.risk`. See
+[ADR 0010](../adr/0010-the-risk-boundary-is-a-verdict-on-an-intent.md).
+
+The edge the data flow leads with — `strategy → risk` — does **not** yet exist
+as an implemented dependency. `atlas.strategy` and `atlas.execution` are still
+empty stubs at ATLAS-TASK-0011, so there is nothing producing a `TradeIntent`
+and nothing consuming a `RiskVerdict`. What exists is the vocabulary both will
+be written against.
 
 ## Package responsibilities
 
@@ -77,6 +95,14 @@ above the port. See [ADR 0008](../adr/0008-time-is-injected.md) and
 passing through `atlas.risk`. `strategy` emits intents; `execution` acts on
 approved intents. Neither can reach a broker directly. Every other safety
 property depends on this one.
+
+ATLAS-TASK-0011 gave this invariant its vocabulary: `TradeIntent` is what a
+strategy would like to do, `RiskVerdict` is what risk permits, and only
+`atlas.execution` turns an approved verdict into an `OrderRequest`. Risk decides;
+it does not place. A reduced-size approval is an approval carrying a smaller
+number, not a third answer. The structural half of the invariant — that risk
+exposes no path to an order — is enforced by test today; the behavioural half
+waits on the packages either side of it existing.
 
 **2. AI is advisory.** `atlas.ai` produces inputs to decisions. A model output
 never becomes an order without passing the same risk gate as any other intent,

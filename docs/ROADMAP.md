@@ -21,10 +21,25 @@ and in package documentation. This file is where they resolve to a status.
 | ATLAS-TASK-0007 | `BaseBrokerAdapter` | ✅ Complete | `1673f79` |
 | ATLAS-TASK-0008 | Adapter concurrency | ✅ Complete | `e451608` |
 | ATLAS-TASK-0009 | The `Clock` abstraction | ✅ Complete | `a400530` |
-| ATLAS-TASK-0010 | Retry and reconnection policy | ✅ Complete | `de7e905` |
+| ATLAS-TASK-0010 | Retry and reconnection policy | ✅ Complete | `de7e905` ‡ |
+| ATLAS-TASK-0011 † | The risk boundary: `TradeIntent` and `RiskVerdict` | ✅ Complete | `PENDING` |
 
-Nothing beyond ATLAS-TASK-0010 is defined, and nothing here declares what
-ATLAS-TASK-0011 will be. The tasks above are the ones the repository itself
+† **Newly specified, not recovered.** Every other row is evidenced by the
+repository record: the task existed, and the commit it cites is the work.
+ATLAS-TASK-0011 was specified and authorised as new work during the task itself.
+Its presence in this table is not evidence that it was previously planned, and
+it must not be described as recovered project history or as previously
+completed.
+
+‡ **The gates passed one commit later.** `de7e905` is where ATLAS-TASK-0010's
+work lives and it is on `main`, which is why it is the commit cited. The tree at
+that commit did not itself pass CI: the run covering it failed at Pytest, and CI
+was first green at `6cca03d`, which corrected a flaky clock test. The citation
+is left as the feature commit — the history is not rewritten — and the gap
+against the definition of **Complete** above is recorded here instead.
+
+Nothing beyond ATLAS-TASK-0011 is defined, and nothing here declares what
+ATLAS-TASK-0012 will be. The tasks above are the ones the repository itself
 declares; this file does not speculate past them.
 
 ## Completed
@@ -348,12 +363,75 @@ attempt's delay being zero was asserted only against `RetryPolicy.none()`, whose
 answer by accident. It is killed now by asking the same question of a policy that
 actually waits.
 
+### ATLAS-TASK-0011 — the risk boundary
+
+Newly specified rather than recovered from the repository record — see the note
+marked † under the status table.
+
+`atlas/risk/contracts.py`: `TradeIntent`, `RiskVerdict`, `VerdictStatus` and
+`RejectionReason`. The architecture's first invariant — a trade intent becomes
+an order only by passing through `atlas.risk`, and every other safety property
+depends on it — had been prose for ten tasks. Nothing said what an intent *was*,
+or what passing through risk *returned*. This gives the invariant its
+vocabulary.
+
+**The shape that was avoided.** Left undefined, the boundary gets decided by
+whichever task needs it first, and the likely accident is a strategy that builds
+the thing execution already accepts — an `OrderRequest` — with risk invoked to
+validate it afterwards. At that point risk is advisory: the object exists, its
+size is chosen, and the only power left is to veto a decision someone else has
+made. `OrderRequest` had already said where the line is, in its own words: whether
+a request is *wise* "is a risk decision, made against state neither this model nor
+the port can see". These are the types that decision is expressed in.
+
+**A verdict is two-valued, and the number carries the nuance.** A reduced-size
+approval is `APPROVED` with a smaller `approved_volume`, not a third status. A
+`REDUCED` member would force every consumer to handle two spellings of "yes",
+and the first one to handle only `APPROVED` sizes the position off the requested
+volume — silent, correct-looking in every test that does not reduce, and wrong
+only in the case the status was added for. `approved_volume` is `None` on a
+rejection, which makes ignoring the status uninteresting rather than merely
+forbidden: there is no number to bypass with.
+
+**Risk may reduce; it may never enlarge.** A validator refuses an
+`approved_volume` above the requested one. A boundary that can return a larger
+number than it was given is a second, unreviewed sizing authority.
+
+**The primitives are the broker's.** `SymbolName`, `OrderSide`, `Price` and
+`Volume` are imported rather than redefined, for the reason `broker/types.py`
+gives for its own aliases — two definitions of one concept diverge, and these
+would diverge exactly at the translation boundary, where nobody is looking. That
+adds `atlas.risk → atlas.broker`, the second edge between feature packages in
+the graph and the first since `broker → common`. It runs downward, and
+`tests/unit/risk/test_risk_boundary.py` asserts it did not become several, that
+no risk module names `OrderRequest`, `OrderType`, `BrokerAdapter` or any order
+verb, and that `atlas.broker` still contains no import of `atlas.risk`.
+
+**What this task does not claim.** `atlas.strategy` and `atlas.execution` remain
+empty stubs, so nothing produces an intent and nothing consumes a verdict. The
+invariant has two halves — risk cannot be bypassed, and execution acts only on
+approved output — and only the structural half is provable today. The boundary
+test records that limitation in its own docstring rather than leaving a reader
+to infer the coverage is wider than it is. No sizing algorithm, exposure limit,
+drawdown control, correlation cap or kill switch exists; constructing an
+`APPROVED` verdict does not make it true.
+
+[ADR-0010](adr/0010-the-risk-boundary-is-a-verdict-on-an-intent.md) records the
+decision and eleven rejected alternatives.
+`packages/risk/src/atlas/risk/README.md` was written.
+
+117 tests were added — 29 for the intent, 37 for the verdict and 51 for the
+boundary, including six that assert the AST scanners can actually fail, because
+a scan that inspects nothing passes everything. A 30-mutant campaign killed 29.
+The survivor is equivalent and is left alone: removing `@unique` from
+`VerdictStatus` changes no behaviour while the members' values stay distinct,
+and `enum.unique` leaves no runtime marker to assert against — it guards a
+future edit rather than a current one.
+
 ## Known documentation debt
 
 - **ADR-015 and ADR-016** were declared dependencies of ATLAS-TASK-0004 but do
-  not exist. `docs/adr/` currently ends at 0009.
+  not exist. `docs/adr/` currently ends at 0010.
 - **Version.** ATLAS-TASK-0004 was specified as `v0.2.0-alpha`; `pyproject.toml`
   and `README.md` still declare `v0.1.0-alpha`. A contract test ties the
   `atlas-core` image tag to `[project].version`, so a bump touches all three.
-- Several `docs/` pages carry a "Status at ATLAS-TASK-0001" banner that predates
-  the broker work.
