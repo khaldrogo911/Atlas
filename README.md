@@ -2,7 +2,7 @@
 
 **Institutional-grade, AI-assisted quantitative Forex trading platform.**
 
-`v0.1.0-alpha` · Python 3.12+ · MIT licensed
+`v0.2.0-alpha` · Python 3.12+ · MIT licensed
 
 ---
 
