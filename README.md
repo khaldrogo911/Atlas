@@ -24,7 +24,7 @@ exist to keep them true as the codebase grows.
 
 ### Status
 
-Last completed: **ATLAS-TASK-0010 — the retry and reconnection policy**. See
+Last completed: **ATLAS-TASK-0012 — the strategy boundary**. See
 [`docs/ROADMAP.md`](docs/ROADMAP.md) for the full task tracker.
 
 The engineering foundation is complete and enforced: dependency management,
@@ -70,10 +70,39 @@ hierarchy rather than from a list, so a refused credential still fails at the
 first attempt — see
 [ADR-0009](docs/adr/0009-retry-is-a-value-and-the-waiting-is-the-clocks.md).
 
-**No trading logic exists yet.** Every other package below is an importable
-unit with a documented responsibility and no implementation, by design.
-`atlas.config` is the exception — configuration *is* foundation, so it is
-fully implemented and tested.
+`atlas.risk` has its first contents (TASK-0011): `TradeIntent`, `RiskVerdict`,
+`VerdictStatus` and `RejectionReason`. The architecture's first invariant — an
+intent becomes an order only by passing through risk — had been prose for ten
+tasks, with nothing saying what an intent *was* or what passing through risk
+returned. A verdict is risk's answer about an intent and not an order: risk may
+approve a smaller volume than was requested and may never enlarge one, and only
+`atlas.execution` turns an approved verdict into an `OrderRequest`. The
+contracts are stated in the port's own `SymbolName`, `OrderSide`, `Price` and
+`Volume` rather than in risk-local copies, because two definitions of one
+concept diverge — see
+[ADR-0010](docs/adr/0010-the-risk-boundary-is-a-verdict-on-an-intent.md).
+
+`atlas.strategy` has its first contents (TASK-0012): `Strategy`, a
+runtime-checkable protocol whose one method is
+`propose(observation, /) -> TradeIntent | None`. A strategy is the only thing
+in Atlas that originates a `TradeIntent`, and returning one or returning `None`
+is the whole of its authority. `atlas.risk` is the one `atlas` package a module
+there imports — a module that *constructed* an intent would have to name the
+port's four primitives, so no module in the package constructs one.
+`ConstantStrategy` is an inert reference implementation that answers with the
+intent it was handed, whatever it is shown: it reads no market data, performs
+no I/O, holds no clock and draws no randomness, it is not exported from
+`atlas.strategy`, and it makes no claim about profitability. There is no
+lifecycle, registry, engine or scheduling — the rest of what the package's
+responsibility names.
+
+**No trading logic exists yet.** The two boundaries above are contracts, not
+controls: there is no sizing rule, no exposure limit, no drawdown control, no
+kill switch and no real strategy. `atlas.execution` is still an empty stub, so
+nothing consumes a verdict. Every package below other than those named above is
+an importable unit with a documented responsibility and no implementation, by
+design. `atlas.config` is the exception — configuration *is* foundation, so it
+is fully implemented and tested.
 
 ---
 
