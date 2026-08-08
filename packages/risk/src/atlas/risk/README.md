@@ -169,11 +169,13 @@ exposure limit, no drawdown control, no correlation cap and no kill switch;
 these arrive with the tasks that implement them, and each names its own
 `RejectionReason`.
 
-`atlas.strategy` and `atlas.execution` are still empty stubs, so nothing
-produces an intent and nothing consumes a verdict. The invariant has two halves
-— risk cannot be bypassed, and execution acts only on approved output — and only
-the structural half is provable today: risk exposes no path to an order, and an
-approved volume exists nowhere except on an approved verdict. The behavioural
-half waits on the packages either side of this one existing, and
+`atlas.strategy` holds the `Strategy` contract and `ConstantStrategy`, an
+inert reference implementation of it — but no engine, lifecycle or registry, so
+nothing drives a strategy and no intent is produced in practice.
+`atlas.execution` is still an empty stub, so nothing consumes a verdict. The
+invariant has two halves — risk cannot be bypassed, and execution acts only on
+approved output — and only the structural half is provable today: risk exposes
+no path to an order, and an approved volume exists nowhere except on an approved
+verdict. The behavioural half waits on a pipeline to observe, and
 `tests/unit/risk/test_risk_boundary.py` says so in its own docstring rather than
 letting a reader infer the coverage is wider than it is.

@@ -72,7 +72,7 @@ services:
         PYTHON_VERSION: "3.12"
     # Tag must equal [project].version in pyproject.toml, which is the single
     # source of truth. A contract test enforces this; do not edit one alone.
-    image: atlas/atlas-core:0.1.0a0
+    image: atlas/atlas-core:0.2.0a0
     container_name: atlas-core
     # Deliberate: atlas-core currently performs a configuration self-check and
     # exits 0. A restarting policy would turn a clean exit into a crash loop.

@@ -24,13 +24,14 @@ and in package documentation. This file is where they resolve to a status.
 | ATLAS-TASK-0010 | Retry and reconnection policy | ✅ Complete | `de7e905` ‡ |
 | ATLAS-TASK-0011 † | The risk boundary: `TradeIntent` and `RiskVerdict` | ✅ Complete | `f54ad613` |
 | ATLAS-TASK-0012 † | The strategy boundary: producing a `TradeIntent` | ✅ Complete | `2e567aa5` |
+| ATLAS-TASK-0013 † | Documentation and release-metadata debt | ✅ Complete | `pending` § |
 
 † **Newly specified, not recovered.** The unmarked rows are evidenced by the
 repository record: the task existed, and the commit it cites is the work.
-ATLAS-TASK-0011 and ATLAS-TASK-0012 were each specified and authorised as new
-work during the task itself. Their presence in this table is not evidence that
-either was previously planned, and neither may be described as recovered project
-history or as previously completed.
+ATLAS-TASK-0011, ATLAS-TASK-0012 and ATLAS-TASK-0013 were each specified and
+authorised as new work during the task itself. Their presence in this table is
+not evidence that any was previously planned, and none may be described as
+recovered project history or as previously completed.
 
 ATLAS-TASK-0012 cites the branch tip rather than the branch's first commit.
 `270f57a8` added the package and `2e567aa5` removed the dependency on
@@ -46,8 +47,15 @@ was first green at `6cca03d`, which corrected a flaky clock test. The citation
 is left as the feature commit — the history is not rewritten — and the gap
 against the definition of **Complete** above is recorded here instead.
 
-Nothing beyond ATLAS-TASK-0012 is defined, and nothing here declares what
-ATLAS-TASK-0013 will be. The tasks above are the ones the repository itself
+§ **The commit is cited after the fact.** This file is part of what
+ATLAS-TASK-0013 delivers, so the row above is written before the commit that
+carries it exists. ATLAS-TASK-0012's row was added the same way — by `b023f8b`,
+after the merge — and this citation is completed the same way once the task
+merges. Until then `pending` is the honest entry rather than a SHA that names
+nothing.
+
+Nothing beyond ATLAS-TASK-0013 is defined, and nothing here declares what
+ATLAS-TASK-0014 will be. The tasks above are the ones the repository itself
 declares; this file does not speculate past them.
 
 ## Completed
@@ -513,8 +521,8 @@ decisions above are recorded in the module docstrings, in
 
 A later task that gives a real strategy the job of constructing its own intent
 will meet the question this one sidestepped — that strategy will have to name
-the four primitives — and it should answer it by amending or superseding
-ADR-0010, not in prose.
+the four primitives — and it should answer it by superseding ADR-0010, not
+in prose.
 
 155 tests were added — 90 for the boundary and 65 for the reference
 implementation, 45 of which exist only to assert that the AST scanners can
@@ -525,10 +533,59 @@ green on the merge commit: Ruff, Black and MyPy clean across 94 source files,
 Windows only; they skip on every Linux run and none of them belong to this
 task.
 
+### ATLAS-TASK-0013 — documentation and release-metadata debt
+
+Newly specified rather than recovered from the repository record — see the note
+marked † under the status table.
+
+No source file changed. This task closes what the debt section below had
+recorded, corrects the one live document ATLAS-TASK-0012 left stale, and settles
+a contradiction between two process documents. It implements nothing, decides no
+architecture, and adds, edits and supersedes no ADR.
+
+**The version says one thing in three places.** ATLAS-TASK-0004 was specified as
+`v0.2.0-alpha` and the repository had stayed on `0.1.0a0`. `pyproject.toml` is
+the source of truth and now declares `0.2.0a0`; `docker-compose.yml` tags the
+`atlas-core` image to match, which `tests/contract/test_repository_structure.py`
+already asserted and still does; and `README.md`'s banner reads `v0.2.0-alpha`.
+That banner is the one copy no test binds, and it stays that way deliberately —
+a test that read prose would make the banner's wording a contract.
+
+**The stale sentence was in one place, not several.**
+`packages/risk/src/atlas/risk/README.md` said `atlas.strategy` and
+`atlas.execution` were both still empty stubs, which ATLAS-TASK-0012 made half
+untrue. It is corrected in place, and says what is now the case: `strategy` has
+a contract and an inert reference implementation, no engine drives one, and
+`execution` is still a stub. Every other occurrence of that wording was checked
+and left alone. `README.md`, `docs/architecture/overview.md`,
+`packages/strategy/src/atlas/strategy/README.md` and both boundary tests name
+`atlas.execution` alone and are still true. ADR-0010 says the same thing and is
+an accepted record, immutable by the rule in `docs/adr/README.md`. The
+ATLAS-TASK-0011 section above is a dated account of what that task did not
+claim, not a live statement about today.
+
+**Supersession, not amendment.** The ATLAS-TASK-0012 section above told a later
+task to answer a question by "amending or superseding" ADR-0010. `docs/adr/`
+allows no such thing: an ADR is immutable once accepted, and the statuses
+defined there are `Proposed`, `Accepted`, `Superseded by ADR-NNNN` and
+`Deprecated`, with no amendment among them. This file was the one in the wrong
+and the phrase is gone. Nothing was added to the ADR process to meet it halfway
+— removing a mechanism that never existed decides nothing, and inventing an
+`Amended` status would have decided a great deal.
+
+No test was added, and none was changed. The changes are documentation and
+release metadata; the single claim among them that a test can hold — that the
+`atlas-core` image tag and `[project].version` are the same string — was already
+covered by a contract test that fails when the two drift, which is why the bump
+touched `docker-compose.yml` in the same breath as `pyproject.toml`.
+
 ## Known documentation debt
 
-- **ADR-015 and ADR-016** were declared dependencies of ATLAS-TASK-0004 but do
-  not exist. `docs/adr/` currently ends at 0010.
-- **Version.** ATLAS-TASK-0004 was specified as `v0.2.0-alpha`; `pyproject.toml`
-  and `README.md` still declare `v0.1.0-alpha`. A contract test ties the
-  `atlas-core` image tag to `[project].version`, so a bump touches all three.
+- **ADR-015 and ADR-016 do not exist and cannot be reconstructed.** They were
+  named as dependencies of ATLAS-TASK-0004 by a specification that is not part
+  of this repository, and no file here records what either was to decide.
+  Writing them now would be inventing two architectural decisions and dating
+  them to a task that is long closed, so they stay unwritten. The numbers do
+  not fit either: `docs/adr/` numbers sequentially in four digits and ends at
+  `0010`, so `015` and `016` name positions the sequence never reached. The
+  next ADR written will be `0011`.

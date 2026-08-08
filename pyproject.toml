@@ -1,6 +1,6 @@
 [project]
 name = "atlas"
-version = "0.1.0a0"
+version = "0.2.0a0"
 description = "Project Atlas — institutional-grade AI-assisted quantitative Forex trading platform."
 readme = "README.md"
 license = "MIT"
