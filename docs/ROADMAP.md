@@ -24,7 +24,7 @@ and in package documentation. This file is where they resolve to a status.
 | ATLAS-TASK-0010 | Retry and reconnection policy | ✅ Complete | `de7e905` ‡ |
 | ATLAS-TASK-0011 † | The risk boundary: `TradeIntent` and `RiskVerdict` | ✅ Complete | `f54ad613` |
 | ATLAS-TASK-0012 † | The strategy boundary: producing a `TradeIntent` | ✅ Complete | `2e567aa5` |
-| ATLAS-TASK-0013 † | Documentation and release-metadata debt | ✅ Complete | `pending` § |
+| ATLAS-TASK-0013 † | Documentation and release-metadata debt | ✅ Complete | `19afcf40` § |
 
 † **Newly specified, not recovered.** The unmarked rows are evidenced by the
 repository record: the task existed, and the commit it cites is the work.
@@ -48,11 +48,12 @@ is left as the feature commit — the history is not rewritten — and the gap
 against the definition of **Complete** above is recorded here instead.
 
 § **The commit is cited after the fact.** This file is part of what
-ATLAS-TASK-0013 delivers, so the row above is written before the commit that
-carries it exists. ATLAS-TASK-0012's row was added the same way — by `b023f8b`,
-after the merge — and this citation is completed the same way once the task
-merges. Until then `pending` is the honest entry rather than a SHA that names
-nothing.
+ATLAS-TASK-0013 delivered, so the row above could not cite its own commit: the
+SHA did not exist until the commit was written. The citation is completed here
+after the merge, which is how ATLAS-TASK-0012's row was filled in too, by
+`b023f8b`. `19afcf40` is the implementation commit and holds the work; the
+merge commit is `1d964186`, and as with `2e567aa5` above it is not what the
+row cites.
 
 Nothing beyond ATLAS-TASK-0013 is defined, and nothing here declares what
 ATLAS-TASK-0014 will be. The tasks above are the ones the repository itself
