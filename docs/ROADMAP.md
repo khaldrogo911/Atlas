@@ -25,7 +25,7 @@ and in package documentation. This file is where they resolve to a status.
 | ATLAS-TASK-0011 † | The risk boundary: `TradeIntent` and `RiskVerdict` | ✅ Complete | `f54ad613` |
 | ATLAS-TASK-0012 † | The strategy boundary: producing a `TradeIntent` | ✅ Complete | `2e567aa5` |
 | ATLAS-TASK-0013 † | Documentation and release-metadata debt | ✅ Complete | `19afcf40` § |
-| ATLAS-TASK-0014 † | The execution contract: an approved verdict becomes an `OrderRequest` | ✅ Complete | `pending` ¶ |
+| ATLAS-TASK-0014 † | The execution contract: an approved verdict becomes an `OrderRequest` | ✅ Complete | `00364ac24f0479de2cb5278b519dbe97cf2e0d2b` |
 
 † **Newly specified, not recovered.** The unmarked rows are evidenced by the
 repository record: the task existed, and the commit it cites is the work.
@@ -55,21 +55,6 @@ after the merge, which is how ATLAS-TASK-0012's row was filled in too, by
 `b023f8b`. `19afcf40` is the implementation commit and holds the work; the
 merge commit is `1d964186`, and as with `2e567aa5` above it is not what the
 row cites.
-
-¶ **The commit and the gates are both outstanding.** This file is part of what
-ATLAS-TASK-0014 delivers, so as with ATLAS-TASK-0013 the row cannot cite its own
-commit: the SHA does not exist until the commit is written. `pending` is
-literal — it is what `19afcf40` wrote in the same position — and is replaced by
-a follow-up `docs(roadmap): record the ATLAS-TASK-0014 commit`, which is how
-every row above was filled in.
-
-The definition of **Complete** at the top of this file asks for two things, and
-at the moment the closeout commit was written neither was yet true: the work was
-not on `main`, and CI had not run on it at all. The gates were green locally —
-Ruff, Black and MyPy clean across 97 source files, 3296 passed, and 100%
-statement and branch coverage of `atlas.execution`. The gap is recorded here
-rather than smoothed over, in the same spirit as ‡ above, and closes when the
-follow-up commit cites a merged SHA that CI has passed on.
 
 Nothing beyond ATLAS-TASK-0014 is defined, and nothing here declares what
 ATLAS-TASK-0015 will be. The tasks above are the ones the repository itself
@@ -654,9 +639,9 @@ forbidden import into the real source of each shipped module and assert the
 scanner reports it, on the ATLAS-TASK-0012 standard that a scan which inspects
 nothing passes everything.
 
-CI had not run at the time of the closeout commit — see the note marked ¶ under
-the status table. Locally: Ruff, Black and MyPy clean across 97 source files,
-3296 passed, and `atlas.execution` at 100% of both statements and branches.
+CI passed on the merge commit the row above cites. Locally: Ruff, Black and MyPy
+clean across 97 source files, 3296 passed, and `atlas.execution` at 100% of both
+statements and branches.
 
 ## Known documentation debt
 
