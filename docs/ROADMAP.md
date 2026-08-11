@@ -25,13 +25,14 @@ and in package documentation. This file is where they resolve to a status.
 | ATLAS-TASK-0011 † | The risk boundary: `TradeIntent` and `RiskVerdict` | ✅ Complete | `f54ad613` |
 | ATLAS-TASK-0012 † | The strategy boundary: producing a `TradeIntent` | ✅ Complete | `2e567aa5` |
 | ATLAS-TASK-0013 † | Documentation and release-metadata debt | ✅ Complete | `19afcf40` § |
+| ATLAS-TASK-0014 † | The execution contract: an approved verdict becomes an `OrderRequest` | ✅ Complete | `pending` ¶ |
 
 † **Newly specified, not recovered.** The unmarked rows are evidenced by the
 repository record: the task existed, and the commit it cites is the work.
-ATLAS-TASK-0011, ATLAS-TASK-0012 and ATLAS-TASK-0013 were each specified and
-authorised as new work during the task itself. Their presence in this table is
-not evidence that any was previously planned, and none may be described as
-recovered project history or as previously completed.
+ATLAS-TASK-0011, ATLAS-TASK-0012, ATLAS-TASK-0013 and ATLAS-TASK-0014 were each
+specified and authorised as new work during the task itself. Their presence in
+this table is not evidence that any was previously planned, and none may be
+described as recovered project history or as previously completed.
 
 ATLAS-TASK-0012 cites the branch tip rather than the branch's first commit.
 `270f57a8` added the package and `2e567aa5` removed the dependency on
@@ -55,8 +56,23 @@ after the merge, which is how ATLAS-TASK-0012's row was filled in too, by
 merge commit is `1d964186`, and as with `2e567aa5` above it is not what the
 row cites.
 
-Nothing beyond ATLAS-TASK-0013 is defined, and nothing here declares what
-ATLAS-TASK-0014 will be. The tasks above are the ones the repository itself
+¶ **The commit and the gates are both outstanding.** This file is part of what
+ATLAS-TASK-0014 delivers, so as with ATLAS-TASK-0013 the row cannot cite its own
+commit: the SHA does not exist until the commit is written. `pending` is
+literal — it is what `19afcf40` wrote in the same position — and is replaced by
+a follow-up `docs(roadmap): record the ATLAS-TASK-0014 commit`, which is how
+every row above was filled in.
+
+The definition of **Complete** at the top of this file asks for two things, and
+at the moment the closeout commit was written neither was yet true: the work was
+not on `main`, and CI had not run on it at all. The gates were green locally —
+Ruff, Black and MyPy clean across 97 source files, 3296 passed, and 100%
+statement and branch coverage of `atlas.execution`. The gap is recorded here
+rather than smoothed over, in the same spirit as ‡ above, and closes when the
+follow-up commit cites a merged SHA that CI has passed on.
+
+Nothing beyond ATLAS-TASK-0014 is defined, and nothing here declares what
+ATLAS-TASK-0015 will be. The tasks above are the ones the repository itself
 declares; this file does not speculate past them.
 
 ## Completed
@@ -580,6 +596,68 @@ release metadata; the single claim among them that a test can hold — that the
 covered by a contract test that fails when the two drift, which is why the bump
 touched `docker-compose.yml` in the same breath as `pyproject.toml`.
 
+### ATLAS-TASK-0014 — the execution contract
+
+Newly specified rather than recovered from the repository record — see the note
+marked † under the status table.
+
+`atlas/execution/contracts.py`: `ExecutionPolicy`, and
+`build_order_request(verdict, policy) -> OrderRequest | None`. ATLAS-TASK-0011
+gave the first invariant its vocabulary and ATLAS-TASK-0012 gave it a producer;
+this gives it a consumer. An approved `RiskVerdict` becomes the `OrderRequest` a
+venue would be asked to fill, and a rejected one becomes nothing. The decision
+is ADR-0011, accepted with this task.
+
+**The volume is the approved volume.** Never `TradeIntent.requested_volume`.
+A reduced approval is an approval carrying a smaller number, and reading the
+requested figure instead is the specific accident ADR-0010 rejected a third
+`REDUCED` status to prevent. Three tests hold it, all of them at sizes strictly
+below the request, because `RiskVerdict` refuses to be constructed the other way
+round — risk may reduce an intent but never enlarge one.
+
+**Naming the port is not calling it.** `OrderRequest`, `OrderType` and `Price`
+are imported from `atlas.broker` rather than restated, which is the rule
+`atlas.broker.types` applies to its own aliases: two definitions of one concept
+"would create two rules for one concept and guarantee they diverge". The edge
+that import creates is a type dependency and nothing else. The whole identifier
+surface of the package is twenty-four names, and `BrokerAdapter`, the port's four
+trading verbs and `OrderStatus` are absent from all of them; the only calls
+anywhere in the package are `ConfigDict`, `Field` twice, and `OrderRequest`.
+A layer that owns broker interaction still does not exist, and this task did not
+invent one.
+
+**Presentation is supplied, not chosen.** The order type and working price
+arrive as a caller-supplied `ExecutionPolicy` — frozen, two fields, no default.
+A default written here would settle filling-mode selection and a deviation
+policy, the two questions `atlas.broker.mt5.adapter` names as having no
+"obviously right answer", inside the package least likely to be read as policy.
+Nothing stores a policy, nothing reads one from configuration, and
+`AtlasSettings` is unchanged: the package's only module-level assignments are
+its two `__all__` lists.
+
+**`STOP_LIMIT` is out of reach, deliberately.** It is the one `OrderType` that
+needs both a working price and a separate trigger, and a policy with exactly two
+answers cannot supply both, so `OrderRequest`'s own validator refuses it. The
+specification fixed the policy at two answers; the implementation supplies no
+third value rather than inventing one, and a passing test characterises the
+refusal so the limit is recorded rather than latent. Widening the policy is a
+decision for the task that needs `STOP_LIMIT`, and this was not it.
+
+`tests/unit/execution/test_execution_boundary.py` is the enforcement, since
+there are no per-package manifests and the distinction the task rests on is
+invisible to both the type checker and the packaging. It follows the scanners in
+the risk and strategy boundary tests, and adds the mechanic this package needs:
+an allowlist, so that the three vocabulary names pass and every other name taken
+from the port is an offence — including `import atlas.broker`, which binds the
+module and so reaches `BrokerAdapter` by attribute. Six of its tests splice a
+forbidden import into the real source of each shipped module and assert the
+scanner reports it, on the ATLAS-TASK-0012 standard that a scan which inspects
+nothing passes everything.
+
+CI had not run at the time of the closeout commit — see the note marked ¶ under
+the status table. Locally: Ruff, Black and MyPy clean across 97 source files,
+3296 passed, and `atlas.execution` at 100% of both statements and branches.
+
 ## Known documentation debt
 
 - **ADR-015 and ADR-016 do not exist and cannot be reconstructed.** They were
@@ -587,6 +665,7 @@ touched `docker-compose.yml` in the same breath as `pyproject.toml`.
   of this repository, and no file here records what either was to decide.
   Writing them now would be inventing two architectural decisions and dating
   them to a task that is long closed, so they stay unwritten. The numbers do
-  not fit either: `docs/adr/` numbers sequentially in four digits and ends at
-  `0010`, so `015` and `016` name positions the sequence never reached. The
-  next ADR written will be `0011`.
+  not fit either: `docs/adr/` numbers sequentially in four digits and ended at
+  `0010` when this was written, so `015` and `016` name positions the sequence
+  never reached. ATLAS-TASK-0014 has since written `0011`, and the next ADR will
+  be `0012`.
