@@ -26,13 +26,14 @@ and in package documentation. This file is where they resolve to a status.
 | ATLAS-TASK-0012 † | The strategy boundary: producing a `TradeIntent` | ✅ Complete | `2e567aa5` |
 | ATLAS-TASK-0013 † | Documentation and release-metadata debt | ✅ Complete | `19afcf40` § |
 | ATLAS-TASK-0014 † | The execution contract: an approved verdict becomes an `OrderRequest` | ✅ Complete | `00364ac24f0479de2cb5278b519dbe97cf2e0d2b` |
+| ATLAS-TASK-0015 † | Living-document correction after the execution contract | ✅ Complete | `5e730b4766165a16d994f55251d9eca50df0b842` |
 
 † **Newly specified, not recovered.** The unmarked rows are evidenced by the
 repository record: the task existed, and the commit it cites is the work.
-ATLAS-TASK-0011, ATLAS-TASK-0012, ATLAS-TASK-0013 and ATLAS-TASK-0014 were each
-specified and authorised as new work during the task itself. Their presence in
-this table is not evidence that any was previously planned, and none may be
-described as recovered project history or as previously completed.
+ATLAS-TASK-0011 through ATLAS-TASK-0015 were each specified and authorised as
+new work during the task itself. Their presence in this table is not evidence
+that any was previously planned, and none may be described as recovered project
+history or as previously completed.
 
 ATLAS-TASK-0012 cites the branch tip rather than the branch's first commit.
 `270f57a8` added the package and `2e567aa5` removed the dependency on
@@ -56,8 +57,8 @@ after the merge, which is how ATLAS-TASK-0012's row was filled in too, by
 merge commit is `1d964186`, and as with `2e567aa5` above it is not what the
 row cites.
 
-Nothing beyond ATLAS-TASK-0014 is defined, and nothing here declares what
-ATLAS-TASK-0015 will be. The tasks above are the ones the repository itself
+Nothing beyond ATLAS-TASK-0015 is defined, and nothing here declares what
+ATLAS-TASK-0016 will be. The tasks above are the ones the repository itself
 declares; this file does not speculate past them.
 
 ## Completed
@@ -642,6 +643,56 @@ nothing passes everything.
 CI passed on the merge commit the row above cites. Locally: Ruff, Black and MyPy
 clean across 97 source files, 3296 passed, and `atlas.execution` at 100% of both
 statements and branches.
+
+### ATLAS-TASK-0015 — living-document correction
+
+Newly specified rather than recovered from the repository record — see the note
+marked † under the status table.
+
+No source file changed. ATLAS-TASK-0014 gave the risk verdict its consumer, and
+the documents describing that boundary went on saying otherwise:
+`atlas.execution` was an empty stub, the graph held three edges, and
+`docs/architecture/overview.md` was current as of ATLAS-TASK-0012. Each
+statement was true when written and false on merge. This task corrects the three
+documents that carried them and does nothing else — no test, script or tool is
+added, no ADR is created or edited, and no edge is created, removed or changed.
+
+**The banner is dated forward, not undated.** `docs/architecture/overview.md`
+now reads "Status at ATLAS-TASK-0014", enumerates `atlas.execution` as narrowly
+as it is implemented, and names this file as the authoritative record of which
+tasks are complete, with the roadmap governing where the two disagree. The
+alternative was to remove the date entirely. A dated banner that falls behind
+announces itself against the last row of the table above; an undated one that
+has drifted is silently wrong, which is the failure being corrected here.
+
+**Five edges, named individually.** The overview said three. Naming them is not
+stylistic: a wrong list is falsifiable by inspection and a wrong integer is not,
+and the integer is what went stale. The count is derived from the AST import
+graph rather than counted by hand, because the `atlas.execution → atlas.risk`
+import sits under a `TYPE_CHECKING` guard — it is indented, and a line-anchored
+grep reports four.
+
+**What is not claimed matters as much as what is.** The chain the data flow
+draws is still not joined end to end, and the corrected documents say so:
+nothing outside the test suite produces a `TradeIntent`, no function anywhere
+turns one into a `RiskVerdict`, and no layer owns a `BrokerAdapter`, so the
+request `atlas.execution` builds is received by nothing. `atlas.risk` still
+holds its two contracts and none of the controls that reach a decision.
+
+One acceptance criterion had to be corrected before the work could be accepted.
+As written it required a `git grep` over `docs/` to return nothing, which no
+implementation could satisfy: the string survives in ATLAS-TASK-0014's
+out-of-scope section, which is a historical record that later tasks do not edit,
+and in the specification's own problem statement, and in the criterion itself.
+It is now scoped to `docs/architecture/` and `packages/`, where it returns
+nothing.
+
+This task reached `main` by direct push rather than through a pull request,
+unlike ATLAS-TASK-0011 through ATLAS-TASK-0014, so there is no merge commit for
+the row above to cite and it cites the implementation commit, as the rows for
+ATLAS-TASK-0011, ATLAS-TASK-0012 and ATLAS-TASK-0013 do. CI passed on that
+commit itself, both jobs green, so there is no gap of the kind recorded at ‡.
+Locally: Ruff, Black and MyPy clean across 97 source files, 3296 passed.
 
 ## Known documentation debt
 
