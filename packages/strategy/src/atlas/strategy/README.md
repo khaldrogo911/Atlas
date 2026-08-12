@@ -186,7 +186,10 @@ those arrive with the tasks that implement them.
 
 There is also no *real* strategy, and no data for one to look at. `atlas.market`,
 `atlas.features` and `atlas.regime` are still empty stubs, so `InputT` has
-nothing concrete to be, and `atlas.execution` is still a stub, so nothing
-consumes a verdict. What exists today is the producing half of the boundary
+nothing concrete to be. `atlas.execution` does consume a verdict as of
+ATLAS-TASK-0014 — an approved one becomes an `OrderRequest`, a rejected one
+becomes `None` — but nothing places that request, nothing turns an intent into a
+verdict, and nothing outside the test suite drives a strategy to produce one.
+What exists in this package is the producing half of the boundary
 ATLAS-TASK-0011 defined: a strategy can be written, type-checked and asserted
 against, and it cannot reach past risk while doing it.

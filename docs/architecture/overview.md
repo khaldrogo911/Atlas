@@ -1,16 +1,23 @@
 # Architecture Overview
 
-> **Status at ATLAS-TASK-0012.** This document describes the intended
+> **Status at ATLAS-TASK-0014.** This document describes the intended
 > architecture and the boundaries the repository is built to enforce. Three
 > packages hold implementation: `atlas.config` in full, `atlas.broker` (domain
 > models, the `BrokerAdapter` port, two adapters, the exception hierarchy) and
 > `atlas.common` (clock, retry). `atlas.risk` holds its two boundary contracts
 > and none of the controls that reach a decision. `atlas.strategy` holds the
 > contract a strategy satisfies and an inert reference implementation of it, and
-> none of the lifecycle, registry or engine its responsibility names. Every other
+> none of the lifecycle, registry or engine its responsibility names.
+> `atlas.execution` holds one thing — the translation of an approved
+> `RiskVerdict` into an `OrderRequest` — and none of the routing, fills,
+> reconciliation or idempotent retry its responsibility also names. Every other
 > package remains an empty, importable unit with a declared responsibility. Where
 > this document describes behaviour, read it as the contract a later task must
 > satisfy, not as a description of code that exists.
+>
+> Which tasks are complete is recorded in [the roadmap](../ROADMAP.md), and that
+> record is the authoritative one. Where this banner and the roadmap disagree,
+> the roadmap is correct.
 
 ## Shape
 
@@ -49,8 +56,12 @@ execution and notification will each want to retry something against a clock,
 and a definition in a feature package would have to be imported upward, which
 the graph forbids.
 
-Three edges between feature packages exist in the graph today, and every one of
-them runs downward. `atlas.broker` imports `atlas.common`;
+Five edges between feature packages exist in the graph today, and every one of
+them runs downward: `atlas.broker` imports `atlas.common`, `atlas.risk` imports
+`atlas.broker`, `atlas.strategy` imports `atlas.risk`, and `atlas.execution`
+imports `atlas.risk` and `atlas.broker`.
+
+`atlas.broker` imports `atlas.common`;
 `tests/unit/broker/test_adapter_contract.py` asserts both halves — that
 `atlas.broker` may reach `atlas.common`, and that it still may not reach anything
 above the port. See [ADR 0008](../adr/0008-time-is-injected.md) and
@@ -78,9 +89,32 @@ a finished intent by whoever wants one.
 no name from the port at all, that the eight execution symbols appear nowhere in
 it, and that `atlas.risk` still contains no import of `atlas.strategy`.
 
-`atlas.execution` remains an empty stub, so nothing consumes a `RiskVerdict`
-yet. The consuming half of the flow is still the contract a later task must
-satisfy.
+`atlas.execution` imports `atlas.risk`, added by ATLAS-TASK-0014, which gave the
+verdict its consumer. `build_order_request` takes a `RiskVerdict` and an
+`ExecutionPolicy` the caller supplies: an approved verdict becomes an
+`OrderRequest` carrying the volume risk approved — never the volume the intent
+requested — and a rejected verdict becomes `None`. `None` is the ordinary answer
+to a refusal rather than an error, because risk declining a trade is risk
+working and is not a broker failure. Nothing in the package stores a policy,
+reads one from configuration or defaults one; a policy chosen here would be a
+trading decision written in the package least likely to be reviewed as one.
+
+`atlas.execution` imports `atlas.broker` as well, added by the same task, and
+that edge is a type dependency rather than a call path. The package names
+`OrderRequest`, `OrderType` and `Price` instead of restating them, for the
+reason the port gives for its own aliases: two definitions of one concept
+guarantee divergence, and a translation layer is exactly where two such rules
+would disagree unobserved. Nothing here obtains, constructs or invokes a
+`BrokerAdapter`, and an `OrderRequest` is inert until some layer places it.
+`tests/unit/execution/test_execution_boundary.py` asserts both halves by walking
+the AST of every module in the package, including imports written under a
+`TYPE_CHECKING` guard. See
+[ADR 0011](../adr/0011-execution-builds-the-request-another-layer-owns-the-port.md).
+
+The chain the data flow draws is not joined end to end. Nothing outside the test
+suite produces a `TradeIntent`, no function anywhere turns one into a
+`RiskVerdict`, and no layer owns a `BrokerAdapter` — so the request
+`atlas.execution` builds is, today, received by nothing.
 
 ## Package responsibilities
 
@@ -119,8 +153,10 @@ ATLAS-TASK-0012 gave it a producer: a `Strategy` is the only thing in Atlas that
 originates a `TradeIntent`, and its whole authority is to return one or to
 return `None`. The structural half of the invariant — that neither package
 exposes a path to an order — is enforced by test today; the behavioural half,
-that a running pipeline routes every intent through risk, waits on `execution`
-and an engine existing.
+that a running pipeline routes every intent through risk, now waits on an engine
+alone. ATLAS-TASK-0014 supplied the consumer `execution` was missing; what is
+still absent is anything that drives a strategy, reaches a verdict and calls the
+translation in sequence.
 
 **2. AI is advisory.** `atlas.ai` produces inputs to decisions. A model output
 never becomes an order without passing the same risk gate as any other intent,
