@@ -27,10 +27,11 @@ and in package documentation. This file is where they resolve to a status.
 | ATLAS-TASK-0013 † | Documentation and release-metadata debt | ✅ Complete | `19afcf40` § |
 | ATLAS-TASK-0014 † | The execution contract: an approved verdict becomes an `OrderRequest` | ✅ Complete | `00364ac24f0479de2cb5278b519dbe97cf2e0d2b` |
 | ATLAS-TASK-0015 † | Living-document correction after the execution contract | ✅ Complete | `5e730b4766165a16d994f55251d9eca50df0b842` |
+| ATLAS-TASK-0016 † | Completing the living-document correction | ✅ Complete | `c37b0ebba3b4206705dfd8c06ba6e96c9ebfcf48` |
 
 † **Newly specified, not recovered.** The unmarked rows are evidenced by the
 repository record: the task existed, and the commit it cites is the work.
-ATLAS-TASK-0011 through ATLAS-TASK-0015 were each specified and authorised as
+ATLAS-TASK-0011 through ATLAS-TASK-0016 were each specified and authorised as
 new work during the task itself. Their presence in this table is not evidence
 that any was previously planned, and none may be described as recovered project
 history or as previously completed.
@@ -57,8 +58,8 @@ after the merge, which is how ATLAS-TASK-0012's row was filled in too, by
 merge commit is `1d964186`, and as with `2e567aa5` above it is not what the
 row cites.
 
-Nothing beyond ATLAS-TASK-0015 is defined, and nothing here declares what
-ATLAS-TASK-0016 will be. The tasks above are the ones the repository itself
+Nothing beyond ATLAS-TASK-0016 is defined, and nothing here declares what
+ATLAS-TASK-0017 will be. The tasks above are the ones the repository itself
 declares; this file does not speculate past them.
 
 ## Completed
@@ -693,6 +694,79 @@ the row above to cite and it cites the implementation commit, as the rows for
 ATLAS-TASK-0011, ATLAS-TASK-0012 and ATLAS-TASK-0013 do. CI passed on that
 commit itself, both jobs green, so there is no gap of the kind recorded at ‡.
 Locally: Ruff, Black and MyPy clean across 97 source files, 3296 passed.
+
+### ATLAS-TASK-0016 — completing the living-document correction
+
+Newly specified rather than recovered from the repository record — see the note
+marked † under the status table.
+
+No source file changed. ATLAS-TASK-0013 enumerated by name every location
+carrying the claim that `atlas.execution` was an empty stub consuming no
+verdict; ATLAS-TASK-0014 made all four false, and ATLAS-TASK-0015 corrected two
+of them. This task corrects the remaining two — `README.md` and the module
+docstrings of the risk and strategy boundary tests — and empties that list. It
+is the third pass at the same drift.
+
+**The duplicated status line is removed rather than re-dated.** `README.md` read
+"Last completed: **ATLAS-TASK-0012 — the strategy boundary**", three tasks
+behind. That line restated the last row of the table above and then linked to
+the table, so it carried no fact this file does not, and it was the only line in
+the file that had gone stale — the Status section's inline references,
+`(TASK-0011)` and `(TASK-0012)`, pin facts that have not moved and are still
+correct. It now names this file as the authoritative record of which tasks are
+complete and names no task itself. Re-dating it to ATLAS-TASK-0015 was
+considered and rejected: it cures the defect for exactly one task and re-arms
+it on the next. That is the opposite of the answer ATLAS-TASK-0015 reached for
+the overview banner, and the difference is the content: that banner enumerates
+which packages hold implementation, which this file does not record, so not
+duplicating it was never an option there. Here it was, and no dated banner
+replaces the removed line.
+
+**The reason was stale; the conclusion was not.** Both test docstrings concluded
+that only the structural half of the first invariant is provable today, and gave
+"`atlas.execution` is still an empty stub" as the reason. The conclusion is
+still true and survives verbatim; the reason is replaced with the true one —
+nothing outside the test suite produces a `TradeIntent`, and nothing anywhere
+turns one into a `RiskVerdict`, so there is no pipeline to observe. Neither
+docstring claims wider coverage than it claimed before, which is the specific
+way this correction could have gone wrong. `README.md` gained a paragraph naming
+what `atlas.execution` actually holds, and the two neighbouring sentences that
+addition would otherwise have falsified were dealt with rather than left: the
+count of boundaries, corrected from two to three, and the sentence asserting by
+omission that every package not named above has no implementation, which stands
+verbatim and is true again because `atlas.execution` is now named above it.
+
+**No test behaviour changed, and that is proved rather than asserted.** For each
+of the two test files, the abstract syntax tree with the module docstring
+removed is identical to the baseline's, compared as `ast.dump` output with
+attributes excluded. No test, fixture, helper or assertion was added, deleted or
+altered, and the suite still collects 3296 tests. The five dependency edges are
+unchanged, derived from the AST import graph rather than counted by hand.
+`tests/unit/execution/test_execution_boundary.py` was not touched: its docstring
+matches the same search patterns this task worked from and is about a consumer
+of the `OrderRequest`, which is still true.
+
+**What was not built.** No risk control and no producer of a `RiskVerdict`, no
+layer owning a `BrokerAdapter`, no run loop, no message bus, no market
+ingestion, no MT5 trading method, no configuration surface, and no ADR — none of
+the architecture the repository has deliberately deferred. The two substantive
+directions remain blocked behind decisions this file does not make, and nothing
+in this task's diff is groundwork for either. The corrected documents say the
+chain is still not joined end to end, because it is not.
+
+This task reached `main` by direct push rather than through a pull request, as
+ATLAS-TASK-0015 did, so there is no merge commit for the row above to cite. It
+has two commits. The first, `d0364dd9ef28de52ef8245a2f90263d16c9d9f78`, applied
+the three corrections and added the specification; the second,
+`c37b0ebba3b4206705dfd8c06ba6e96c9ebfcf48`, corrected the specification's own
+account of coverage, which had said no baseline figure existed to compare
+against when what is true is narrower — the local quality gate does not measure
+coverage and CI does, and this task altered neither. The row above cites the
+second, which holds the final state. CI passed on both, verified by `head_sha`
+rather than by recency: run `31655632275` against `c37b0ebb`, Quality Gate and
+Container & Compose both green, so there is no gap of the kind recorded at ‡.
+Locally: Ruff, Black and MyPy clean, 3296 passed — the baseline count,
+unchanged, which is the evidence that nothing outside the scope was touched.
 
 ## Known documentation debt
 
