@@ -529,8 +529,9 @@ and **AC-9**.
 
 The test count after implementation must be identical to `main` at the
 baseline: **3296 tests collected**, all passing. A change is evidence that
-something outside scope was touched. Coverage is not compared, because the
-repository's quality gate does not measure it — see AC-12.
+something outside scope was touched. Coverage is not compared during local
+verification, because the local quality gate does not measure it; CI does, and
+this task does not introduce or alter coverage measurement — see AC-12.
 
 *Structural tests affected:* none. `TestRepositoryLayout` requires `README.md`
 to exist and does not read it. `TestPackageDeclarations`,
@@ -590,9 +591,10 @@ looks right.
 10. **Quality gate green.** Run the repository's gate — `scripts/quality.ps1` on
     Windows, `scripts/quality.sh` otherwise — with full output captured. Ruff,
     Black and MyPy must be clean; pytest must report exactly **3296** tests, all
-    passing. Coverage is not compared, because the gate does not measure it —
-    see AC-12. **Container & Compose runs only in CI and cannot be run locally;
-    say so rather than implying it passed.**
+    passing. Coverage is not compared, because the local gate does not measure
+    it; CI does, and this task does not alter that — see AC-12. **Container &
+    Compose runs only in CI and cannot be run locally; say so rather than
+    implying it passed.**
 11. **Read all three corrected files end to end.** Truths T-14, T-15 and T-17
     cannot be checked by command. The specific failure to hunt for is a set of
     sentences that are each individually true but together imply the chain runs.
@@ -635,10 +637,13 @@ Nothing further is required. No validation is added for ceremony.
   are unchanged.
 - **AC-11.** `git diff -- tests/unit/execution/` is empty.
 - **AC-12.** The quality gate passes, reporting exactly **3296** tests — the
-  baseline count. Coverage is not compared, because the repository's gate does
-  not measure it: `pytest.ini` enables no `--cov` and `scripts/quality.ps1` runs
-  plain `pytest`, so no baseline coverage figure exists to compare against.
-  Reporting one would mean inventing it.
+  baseline count. Coverage is not compared during local verification, because
+  the local gate does not measure it: `pytest.ini` enables no `--cov` and
+  `scripts/quality.ps1` runs plain `pytest`, so a local run produces no figure
+  to compare and reporting one would mean inventing it. CI does measure
+  coverage — `.github/workflows/ci.yml` runs `pytest --cov --cov-report=xml
+  --cov-report=term-missing` — but this task neither introduces nor alters
+  coverage measurement.
 - **AC-13.** Every passage listed in §9's protected table is byte-for-byte
   unchanged.
 - **AC-14.** No changed file contains a CR byte.
