@@ -20,6 +20,7 @@ the history of the system's reasoning stays intact.
 | [0009](0009-retry-is-a-value-and-the-waiting-is-the-clocks.md) | Retrying is a value, and the waiting belongs to the clock | Accepted |
 | [0010](0010-the-risk-boundary-is-a-verdict-on-an-intent.md) | The risk boundary is a verdict on an intent | Accepted |
 | [0011](0011-execution-builds-the-request-another-layer-owns-the-port.md) | Execution builds the request; another layer owns the port | Accepted |
+| [0012](0012-risk-is-handed-its-state-and-reads-its-own-limits.md) | Risk is handed its state and reads its own limits | Accepted |
 
 ## Writing one
 
