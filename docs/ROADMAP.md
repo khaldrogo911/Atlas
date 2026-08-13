@@ -28,10 +28,11 @@ and in package documentation. This file is where they resolve to a status.
 | ATLAS-TASK-0014 † | The execution contract: an approved verdict becomes an `OrderRequest` | ✅ Complete | `00364ac24f0479de2cb5278b519dbe97cf2e0d2b` |
 | ATLAS-TASK-0015 † | Living-document correction after the execution contract | ✅ Complete | `5e730b4766165a16d994f55251d9eca50df0b842` |
 | ATLAS-TASK-0016 † | Completing the living-document correction | ✅ Complete | `c37b0ebba3b4206705dfd8c06ba6e96c9ebfcf48` |
+| ATLAS-TASK-0017 † | The first risk control: a portfolio margin-utilisation limit | ✅ Complete | `4147f12c8a52b6095b4380ebbc57c92cd058d633` |
 
 † **Newly specified, not recovered.** The unmarked rows are evidenced by the
 repository record: the task existed, and the commit it cites is the work.
-ATLAS-TASK-0011 through ATLAS-TASK-0016 were each specified and authorised as
+ATLAS-TASK-0011 through ATLAS-TASK-0017 were each specified and authorised as
 new work during the task itself. Their presence in this table is not evidence
 that any was previously planned, and none may be described as recovered project
 history or as previously completed.
@@ -58,9 +59,10 @@ after the merge, which is how ATLAS-TASK-0012's row was filled in too, by
 merge commit is `1d964186`, and as with `2e567aa5` above it is not what the
 row cites.
 
-Nothing beyond ATLAS-TASK-0016 is defined, and nothing here declares what
-ATLAS-TASK-0017 will be. The tasks above are the ones the repository itself
-declares; this file does not speculate past them.
+ATLAS-TASK-0017 is complete and pushed to `main`. Nothing beyond it is defined,
+and this file declares no ATLAS-TASK-0018 and no work after it. The tasks above
+are the ones the repository itself declares; this file does not speculate past
+them.
 
 ## Completed
 
@@ -768,6 +770,129 @@ Container & Compose both green, so there is no gap of the kind recorded at ‡.
 Locally: Ruff, Black and MyPy clean, 3296 passed — the baseline count,
 unchanged, which is the evidence that nothing outside the scope was touched.
 
+### ATLAS-TASK-0017 — the first risk control
+
+Newly specified rather than recovered from the repository record — see the note
+marked † under the status table.
+
+`packages/risk/src/atlas/risk/exposure.py` holds `evaluate_exposure(intent,
+account) -> RiskVerdict`, a portfolio margin-utilisation limit. ATLAS-TASK-0011
+gave the first invariant its vocabulary, ATLAS-TASK-0012 gave it a producer and
+ATLAS-TASK-0014 gave it a consumer; this is the first thing in `atlas.risk` that
+reaches a decision. An intent is approved unchanged while `Account.margin` over
+`Account.equity` is strictly below the maximum the process is configured to
+permit, and rejected with `EXPOSURE_LIMIT` otherwise. There is no reduction path
+and no third answer. The decision it implements is
+[ADR 0012](adr/0012-risk-is-handed-its-state-and-reads-its-own-limits.md).
+
+**The verdict does not depend on the size of the intent, and that is written
+down.** ADR-0012 forbids risk from calling the port, so this control cannot ask
+what an intent would cost in margin — the port's `margin_required` is exactly
+the operation the boundary test asserts no risk module can reach. It judges the
+exposure the account already carries, which means a 0.01-lot intent and a
+100-lot intent against the same `Account` get the same answer. That is a real
+limitation of a portfolio-level control that may not consult the venue, and it
+is stated in the module's own docstring and asserted by a test rather than left
+for a reader to infer from the code.
+
+**The comparison is exact integer arithmetic, not decimal arithmetic.**
+`margin / equity < limit` rounds the quotient to the ambient decimal context and
+at the interpreter's default precision approves cases that should reject;
+`margin < limit * equity` rounds the product instead and raises
+`decimal.Overflow` on a large finite limit. Both borrow a precision from a
+context nothing in this repository sets. Instead each operand is taken apart
+with `Decimal.as_integer_ratio()` and the inequality is cross-multiplied in
+unbounded integers, so there is no rounding step, no precision, no context and
+no trap, and the comparison is total on every finite `Decimal` — including
+`1E+999999`, which is where the two rejected formulations fail.
+
+**An unusable account state is not a reason to permit new exposure.** A
+non-finite margin, equity or limit fails closed, and so does non-positive
+equity, checked in that order: a non-finite `Decimal` has no integer ratio, and
+cross-multiplying an inequality is valid only where equity is positive. Nothing
+raises. A control that threw where it was asked to judge would be bypassable by
+an exception handler one layer up, so a blown account and a venue reporting a
+non-finite amount are refusals rather than errors. `status` and `reason` are
+identical for every refusal this control makes, which leaves `detail` as the
+only field that tells an operator which refusal it was.
+
+**The default permits nothing, and the deployment supplies the number.**
+`RiskSettings.max_margin_utilisation` is a `Decimal` defaulting to `0`,
+constrained `ge=0` with `allow_inf_nan=False` and no upper bound. Because the
+comparison is strict, that default refuses every intent — absence of
+configuration is not permission. No file under `config/` sets a value, because
+any positive value is a trading policy and belongs to the deployment rather than
+to the repository, for the reason ATLAS-TASK-0014 gave for refusing to default
+an `ExecutionPolicy`. A process resolved to `production` **or** `demo` refuses
+to start until the limit is above zero. `Environment.is_live` still means
+`production` alone, and the debug, logging-format and postgres-password
+invariants still apply to `production` alone; the start-up check was restructured
+to collect violations from two conditions rather than one, not widened.
+
+**A second edge out of risk, under a name allowlist.** `atlas.risk` →
+`atlas.config` is the sixth edge between feature packages and the second out of
+`atlas.risk`. It carries exactly one name, `get_settings` — enough to read this
+package's own limit and nothing else — and the limit is read on every call
+rather than held, so nothing caches a settings object, a section or a number at
+import time. `tests/unit/risk/test_risk_boundary.py` gained the allowlist of
+permitted names, and a separate scan asserting that no risk module reaches a
+credential-bearing configuration name: reaching a database password through a
+settings object requires no import at all, so an import allowlist cannot see
+that far on its own. The graph is still acyclic, and `atlas.config` still
+imports no feature package.
+
+**ADR-0012 was brought under version control unmodified.** It had been accepted
+and was present on disk but untracked, which is why this task treats committing
+an unmodified file as distinct from writing or changing one: its blob is
+`497ab06f8bfb5aad3b5344fd27319c34d3dd6537` both before the task and in the
+commit, and it entered history as an addition. No ADR's content was created or
+altered here.
+
+**What this task does not claim.** There is no sizing algorithm, no drawdown
+control, no correlation cap and no kill switch; the other three `RejectionReason`
+members remain unimplemented, and the package's responsibility in the overview's
+table still names four things this delivers one of. There is no risk engine and
+no pipeline: nothing outside the test suite produces a `TradeIntent` or hands
+one to `evaluate_exposure`, and no layer owns a `BrokerAdapter`, so the chain
+the data flow draws is still not joined end to end. The behavioural half of the
+first invariant still waits on something that drives a strategy, reaches a
+verdict and calls the translation in sequence.
+
+Fourteen places propagated the change. Eleven were prose statements that became
+false: `README.md`, three passages in `docs/architecture/overview.md`, three in
+`packages/risk/src/atlas/risk/README.md`, the package docstring, the
+`RejectionReason` docstring, and the risk and strategy boundary-test docstrings.
+The `config/production` header comment became incomplete rather than wrong — an
+operator satisfying every invariant it listed would still have been refused
+start-up. Three copies of the `atlas.risk.__all__` assertion are test assertions
+rather than prose, and would have failed. `.env.example` stated nothing false;
+it catalogued no variable for a limit a demo or production process now cannot
+start without. One of the overview passages — a sentence in the overview
+describing what the risk boundary test asserts — was found during implementation
+rather than during specification, and the specification was amended once, after
+its own final audit, to authorise that single sentence rather than let the
+implementation quietly widen its own scope. That amendment is recorded in the
+specification's §1.
+
+84 tests were added: 29 for the control, 41 for the widened boundary and the
+credential scan, and 14 for the configuration field and its start-up invariant.
+The final count reconciles rather than being discovered — `3296 − 1 + 10 + 84 =
+3389`, where the `−1` is `atlas.config` leaving the forbidden-package
+parametrisation and the `+10` is the new module joining `RISK_SOURCES` in two
+files. Six mutations of the control were each observed to fail at least one
+test: `<` widened to `<=`, both disqualified arithmetic formulations, each of
+the two guards removed, and a real credential access injected into the module.
+Removing the equity guard is caught by exactly one test, which is the test that
+exists because the specification shows that guard changes no verdict — only the
+`detail` an operator reads.
+
+This task reached `main` by direct push rather than through a pull request, as
+ATLAS-TASK-0015 and ATLAS-TASK-0016 did, so there is no merge commit for the row
+above to cite. It has one commit, `4147f12c`, covering 17 files. CI passed on
+it, verified by `head_sha` rather than by recency: run `31733801506` against
+`4147f12c`, concluded successful, so there is no gap of the kind recorded at ‡.
+Locally: Ruff, Black and MyPy `--strict` clean, 3389 passed.
+
 ## Known documentation debt
 
 - **ADR-015 and ADR-016 do not exist and cannot be reconstructed.** They were
@@ -777,5 +902,16 @@ unchanged, which is the evidence that nothing outside the scope was touched.
   them to a task that is long closed, so they stay unwritten. The numbers do
   not fit either: `docs/adr/` numbers sequentially in four digits and ended at
   `0010` when this was written, so `015` and `016` name positions the sequence
-  never reached. ATLAS-TASK-0014 has since written `0011`, and the next ADR will
-  be `0012`.
+  never reached. ATLAS-TASK-0014 has since written `0011`, and ADR-0012 was
+  accepted for ATLAS-TASK-0017 and committed by it.
+
+- **`docs/adr/README.md` does not index ADR-0012.** That index lists ADR-0001
+  through ADR-0011. ADR-0012 is accepted, is committed as of ATLAS-TASK-0017,
+  and is absent from it. The omission predates that task — it dates from when
+  the ADR was written and left untracked — and ATLAS-TASK-0017 recorded it
+  rather than folding an unrelated correction into a diff that was to be
+  reviewed against its own list of permitted files, which is why
+  `docs/adr/README.md` was on that task's forbidden list. It is more visible now
+  than it was, because the repository holds a committed ADR that its own
+  committed index does not list. The fix is one row in one table; it needs no
+  ADR of its own and no code change.
