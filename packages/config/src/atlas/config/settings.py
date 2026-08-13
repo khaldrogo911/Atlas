@@ -17,6 +17,7 @@ structured logs, or tracebacks.
 from __future__ import annotations
 
 import os
+from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -39,6 +40,7 @@ __all__ = [
     "LoggingSettings",
     "PostgresSettings",
     "RedisSettings",
+    "RiskSettings",
     "get_settings",
     "load_settings",
 ]
@@ -144,6 +146,40 @@ class DuckDBSettings(BaseModel):
     memory_limit: str = Field(default="4GB", pattern=_MEMORY_LIMIT_PATTERN)
 
 
+class RiskSettings(BaseModel):
+    """Limits the risk controls enforce.
+
+    ``max_margin_utilisation`` is a ratio rather than a percentage: ``0.5``
+    permits new exposure only while pledged margin is below half of equity. The
+    comparison is strict, so the default of ``0`` permits nothing at all. That
+    is the point — every positive value here is a trading policy, and a default
+    that named one would be a policy nobody chose. Absence is not permission,
+    and :meth:`AtlasSettings._enforce_production_invariants` is what turns that
+    from a convention into a start-up failure where real money is shaped.
+
+    No upper bound is imposed, for the same reason: any bound above zero would
+    itself be a policy number. ``allow_inf_nan=False`` is stated explicitly
+    because it constrains finiteness rather than magnitude — every finite value
+    remains acceptable, ``1E+999999`` included — and because the repository's
+    convention is to declare such a flag rather than inherit whichever way a
+    framework default happens to fall.
+    """
+
+    model_config = _SECTION_CONFIG
+
+    max_margin_utilisation: Decimal = Field(
+        default=Decimal("0"),
+        ge=0,
+        allow_inf_nan=False,
+        description=(
+            "Maximum portfolio margin/equity ratio, exclusive. Zero permits nothing. "
+            "Prefer ATLAS_RISK__MAX_MARGIN_UTILISATION, which converts to Decimal "
+            "exactly; a bare TOML number is parsed as a float and loses precision "
+            "before this model sees it, so quote a TOML value."
+        ),
+    )
+
+
 class AtlasSettings(BaseSettings):
     """Root settings object for every Project Atlas process."""
 
@@ -172,6 +208,7 @@ class AtlasSettings(BaseSettings):
     postgres: PostgresSettings = Field(default_factory=PostgresSettings)
     redis: RedisSettings = Field(default_factory=RedisSettings)
     duckdb: DuckDBSettings = Field(default_factory=DuckDBSettings)
+    risk: RiskSettings = Field(default_factory=RiskSettings)
 
     @classmethod
     def settings_customise_sources(
@@ -206,23 +243,38 @@ class AtlasSettings(BaseSettings):
 
     @model_validator(mode="after")
     def _enforce_production_invariants(self) -> AtlasSettings:
-        """Refuse to start a production process with unsafe settings.
+        """Refuse to start a live-shaped process with unsafe settings.
+
+        Three of the four invariants apply to ``production`` alone, which is
+        what :attr:`Environment.is_live` means and must keep meaning. The risk
+        limit also applies to ``demo``, because demo exists to be
+        indistinguishable from production in everything except the money at
+        risk — and a risk limit is topology, not money.
+
+        Every violation is collected before any is raised, so a misconfigured
+        deployment learns all of them at once rather than one per restart.
 
         Returns:
             The validated instance.
 
         Raises:
-            ValueError: If a production-only invariant is violated.
+            ValueError: If an invariant of the resolved environment is violated.
         """
-        if not self.environment.is_live:
-            return self
         violations: list[str] = []
-        if self.debug:
-            violations.append("debug must be false in production")
-        if not self.postgres.password.get_secret_value():
-            violations.append("postgres.password must be supplied in production")
-        if self.logging.format != "json":
-            violations.append("logging.format must be 'json' in production")
+        if self.environment.is_live:
+            if self.debug:
+                violations.append("debug must be false in production")
+            if not self.postgres.password.get_secret_value():
+                violations.append("postgres.password must be supplied in production")
+            if self.logging.format != "json":
+                violations.append("logging.format must be 'json' in production")
+        if (
+            self.environment.is_live or self.environment is Environment.DEMO
+        ) and self.risk.max_margin_utilisation <= 0:
+            violations.append(
+                "risk.max_margin_utilisation must be greater than zero in "
+                f"{self.environment.value}"
+            )
         if violations:
             msg = "; ".join(violations)
             raise ValueError(msg)

@@ -5,6 +5,13 @@
 #   * debug must be false
 #   * logging.format must be "json"
 #   * postgres.password must be supplied through the environment
+#   * risk.max_margin_utilisation must be greater than zero
+#
+# The last of these is enforced under ATLAS_ENV=demo as well: demo is production
+# topology, and a risk limit is topology rather than money at risk. It is
+# deliberately absent from every layer in this tree, because any value for it is
+# a trading policy and belongs to the deployment, not to the repository. Supply
+# it through ATLAS_RISK__MAX_MARGIN_UTILISATION.
 #
 # A process that violates any of these refuses to start.
 # ==============================================================================

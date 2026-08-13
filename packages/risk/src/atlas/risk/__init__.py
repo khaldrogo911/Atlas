@@ -17,9 +17,12 @@ proceed, and :mod:`atlas.execution` is what turns it into an
 
 ATLAS-TASK-0001 established this package as an empty, importable unit with a
 declared responsibility. ATLAS-TASK-0011 delivered the first of it: the two
-contracts the boundary is stated in. The controls that reach a verdict —
-sizing, the exposure and drawdown limits, the correlation cap, the kill
-switches — arrive with the tasks that implement them, and each names its own
+contracts the boundary is stated in. ATLAS-TASK-0017 delivered the first control
+that reaches one — :func:`~atlas.risk.exposure.evaluate_exposure`, the portfolio
+margin-utilisation limit, which names
+:attr:`~atlas.risk.contracts.RejectionReason.EXPOSURE_LIMIT`. The controls still
+outstanding — sizing, the drawdown limit, the correlation cap, the kill switches
+— arrive with the tasks that implement them, and each names its own
 :class:`~atlas.risk.contracts.RejectionReason`.
 """
 
@@ -32,6 +35,7 @@ from atlas.risk.contracts import (
     TradeIntent,
     VerdictStatus,
 )
+from atlas.risk.exposure import evaluate_exposure
 
 __all__ = [
     "RISK_MODEL_CONFIG",
@@ -39,4 +43,5 @@ __all__ = [
     "RiskVerdict",
     "TradeIntent",
     "VerdictStatus",
+    "evaluate_exposure",
 ]

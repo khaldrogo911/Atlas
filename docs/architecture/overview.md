@@ -56,10 +56,10 @@ execution and notification will each want to retry something against a clock,
 and a definition in a feature package would have to be imported upward, which
 the graph forbids.
 
-Five edges between feature packages exist in the graph today, and every one of
+Six edges between feature packages exist in the graph today, and every one of
 them runs downward: `atlas.broker` imports `atlas.common`, `atlas.risk` imports
-`atlas.broker`, `atlas.strategy` imports `atlas.risk`, and `atlas.execution`
-imports `atlas.risk` and `atlas.broker`.
+`atlas.broker` and `atlas.config`, `atlas.strategy` imports `atlas.risk`, and
+`atlas.execution` imports `atlas.risk` and `atlas.broker`.
 
 `atlas.broker` imports `atlas.common`;
 `tests/unit/broker/test_adapter_contract.py` asserts both halves — that
@@ -71,9 +71,11 @@ above the port. See [ADR 0008](../adr/0008-time-is-injected.md) and
 contracts are stated in the port's own `SymbolName`, `OrderSide`, `Price` and
 `Volume` rather than in risk-local copies, because two definitions of one
 concept diverge — and would diverge exactly at the boundary risk exists to
-hold. `tests/unit/risk/test_risk_boundary.py` asserts that the edge did not
-become several, that no risk module can reach an order, and that `atlas.broker`
-still contains no import of `atlas.risk`. See
+hold. `tests/unit/risk/test_risk_boundary.py` asserts that the imports stay
+within the permitted set — `atlas.broker`, and `atlas.config` for the single
+name `get_settings`, added by ATLAS-TASK-0017 — that no risk module reaches a
+credential-bearing setting, that no risk module can reach an order, and that
+`atlas.broker` still contains no import of `atlas.risk`. See
 [ADR 0010](../adr/0010-the-risk-boundary-is-a-verdict-on-an-intent.md).
 
 `atlas.strategy` imports `atlas.risk`, added by ATLAS-TASK-0012, and imports
@@ -112,9 +114,9 @@ the AST of every module in the package, including imports written under a
 [ADR 0011](../adr/0011-execution-builds-the-request-another-layer-owns-the-port.md).
 
 The chain the data flow draws is not joined end to end. Nothing outside the test
-suite produces a `TradeIntent`, no function anywhere turns one into a
-`RiskVerdict`, and no layer owns a `BrokerAdapter` — so the request
-`atlas.execution` builds is, today, received by nothing.
+suite produces a `TradeIntent` or hands one to `atlas.risk`, and no layer owns a
+`BrokerAdapter` — so the request `atlas.execution` builds is, today, received by
+nothing.
 
 ## Package responsibilities
 

@@ -17,8 +17,9 @@ What these tests deliberately do **not** claim
     that is provable today — nothing here can obtain an adapter, name an order or
     reach :mod:`atlas.execution`. The other half, that a real pipeline routes
     every intent through risk before an order exists, needs a pipeline. There is
-    no engine, no registry and nothing that turns an intent into a verdict, so
-    what is asserted below is the structural half and nothing more.
+    no engine and no registry, and nothing outside the test suite hands an
+    intent to the control that would judge one, so what is asserted below is the
+    structural half and nothing more.
 """
 
 from __future__ import annotations
@@ -370,6 +371,7 @@ class TestTheRiskBoundaryWasNotWidened:
             "RiskVerdict",
             "TradeIntent",
             "VerdictStatus",
+            "evaluate_exposure",
         }
 
     @pytest.mark.parametrize("name", INTENT_PRIMITIVES)

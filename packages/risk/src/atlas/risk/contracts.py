@@ -87,8 +87,10 @@ class RejectionReason(StrEnum):
 
     The four members are the controls :mod:`atlas.risk` is declared to own —
     "per-instrument and portfolio exposure limits, drawdown controls,
-    correlation caps and the kill switches that halt trading". None of them is
-    implemented yet; naming them here is what makes a rejection auditable
+    correlation caps and the kill switches that halt trading". One of them is
+    implemented: ATLAS-TASK-0017 gave :attr:`EXPOSURE_LIMIT` the portfolio
+    margin-utilisation control that produces it. The other three are not
+    implemented yet. Naming them here is what makes a rejection auditable
     rather than a free-text string that every caller parses differently.
 
     A new control adds a member in the task that implements it. Inventing one

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import TYPE_CHECKING, cast
 
 import pytest
@@ -88,6 +89,9 @@ class TestEnvironmentVariables:
     ) -> None:
         assert isolated_env.exists()
         monkeypatch.setenv("ATLAS_ENV", "demo")
+        # Demo carries the risk-limit invariant, so selecting it alone no longer
+        # resolves. The limit is supplied here to keep this test about selection.
+        monkeypatch.setenv("ATLAS_RISK__MAX_MARGIN_UTILISATION", "0.5")
 
         assert load_settings().environment is Environment.DEMO
 
@@ -251,6 +255,7 @@ class TestProductionInvariants:
         monkeypatch.setenv("ATLAS_POSTGRES__PASSWORD", "supplied-by-secret-store")
         monkeypatch.setenv("ATLAS_LOGGING__FORMAT", "json")
         monkeypatch.setenv("ATLAS_DEBUG", "false")
+        monkeypatch.setenv("ATLAS_RISK__MAX_MARGIN_UTILISATION", "0.5")
 
     def test_a_correctly_configured_production_process_starts(
         self, isolated_env: Path, monkeypatch: pytest.MonkeyPatch
@@ -321,6 +326,174 @@ class TestProductionInvariants:
 
         assert settings.debug is True
         assert settings.environment.is_live is False
+
+
+class TestTheRiskLimitInvariant:
+    """The one invariant that covers demo as well as production.
+
+    Demo exists to be indistinguishable from production in everything except the
+    money at risk, and a risk limit is topology rather than money. The three
+    original invariants are about live credentials and live diagnostics and stay
+    where they were.
+    """
+
+    def test_production_without_a_limit_refuses_to_start(
+        self, isolated_env: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        assert isolated_env.exists()
+        monkeypatch.setenv("ATLAS_ENV", "production")
+        monkeypatch.setenv("ATLAS_POSTGRES__PASSWORD", "supplied-by-secret-store")
+        monkeypatch.setenv("ATLAS_LOGGING__FORMAT", "json")
+
+        with pytest.raises(ConfigurationError, match=r"risk\.max_margin_utilisation"):
+            load_settings()
+
+    def test_demo_without_a_limit_refuses_to_start(
+        self, isolated_env: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        assert isolated_env.exists()
+        monkeypatch.setenv("ATLAS_ENV", "demo")
+
+        with pytest.raises(ConfigurationError, match=r"risk\.max_margin_utilisation"):
+            load_settings()
+
+    def test_a_limit_of_exactly_zero_is_refused_where_it_matters(
+        self, isolated_env: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Supplying the default explicitly is not supplying a limit."""
+        assert isolated_env.exists()
+        monkeypatch.setenv("ATLAS_ENV", "demo")
+        monkeypatch.setenv("ATLAS_RISK__MAX_MARGIN_UTILISATION", "0")
+
+        with pytest.raises(ConfigurationError, match=r"risk\.max_margin_utilisation"):
+            load_settings()
+
+    def test_development_starts_without_any_risk_configuration(
+        self, isolated_env: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A development process starts on a limit that permits nothing.
+
+        Refusing to start would make the default useless for local work; the
+        control's own strictness is what keeps the default safe.
+        """
+        assert isolated_env.exists()
+        monkeypatch.setenv("ATLAS_ENV", "development")
+
+        settings = load_settings()
+
+        assert settings.risk.max_margin_utilisation == Decimal("0")
+
+    def test_every_violation_including_the_risk_limit_is_reported_at_once(
+        self, isolated_env: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        assert isolated_env.exists()
+        monkeypatch.setenv("ATLAS_ENV", "production")
+        monkeypatch.setenv("ATLAS_DEBUG", "true")
+        monkeypatch.setenv("ATLAS_LOGGING__FORMAT", "console")
+
+        with pytest.raises(ConfigurationError) as caught:
+            load_settings()
+
+        message = str(caught.value)
+        assert "debug must be false" in message
+        assert "postgres.password" in message
+        assert "logging.format" in message
+        assert "risk.max_margin_utilisation" in message
+
+    def test_demo_is_not_constrained_by_the_three_production_invariants(
+        self, isolated_env: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The test that catches "covering demo" by redefining ``is_live``.
+
+        Widening :attr:`Environment.is_live` to include demo would satisfy the
+        risk-limit tests above and silently impose the live-credential rules on
+        every demo deployment.
+        """
+        assert isolated_env.exists()
+        monkeypatch.setenv("ATLAS_ENV", "demo")
+        monkeypatch.setenv("ATLAS_RISK__MAX_MARGIN_UTILISATION", "0.5")
+        monkeypatch.setenv("ATLAS_DEBUG", "true")
+        monkeypatch.setenv("ATLAS_LOGGING__FORMAT", "console")
+
+        settings = load_settings()
+
+        assert settings.environment is Environment.DEMO
+        assert settings.environment.is_live is False
+        assert Environment.PRODUCTION.is_live is True
+        assert settings.debug is True
+        assert not settings.postgres.password.get_secret_value()
+
+
+class TestTheRiskLimitField:
+    def test_the_default_is_exactly_zero(self, isolated_env: Path) -> None:
+        assert isolated_env.exists()
+
+        assert load_settings().risk.max_margin_utilisation == Decimal("0")
+
+    def test_a_negative_limit_is_rejected(
+        self, isolated_env: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        assert isolated_env.exists()
+        monkeypatch.setenv("ATLAS_RISK__MAX_MARGIN_UTILISATION", "-0.5")
+
+        with pytest.raises(ConfigurationError, match="max_margin_utilisation"):
+            load_settings()
+
+    @pytest.mark.parametrize("value", ["NaN", "Infinity", "-Infinity"])
+    def test_a_non_finite_limit_is_rejected(
+        self, isolated_env: Path, monkeypatch: pytest.MonkeyPatch, value: str
+    ) -> None:
+        """Supplied as a string, which is how an operator would actually get one in."""
+        assert isolated_env.exists()
+        monkeypatch.setenv("ATLAS_RISK__MAX_MARGIN_UTILISATION", value)
+
+        with pytest.raises(ConfigurationError, match="max_margin_utilisation"):
+            load_settings()
+
+    def test_an_enormous_finite_limit_is_accepted(
+        self, isolated_env: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """There is no upper bound, and this is the test that fails if one appears.
+
+        Any bound above zero would be a policy number nobody chose.
+        """
+        assert isolated_env.exists()
+        monkeypatch.setenv("ATLAS_RISK__MAX_MARGIN_UTILISATION", "1E+999999")
+
+        assert load_settings().risk.max_margin_utilisation == Decimal("1E+999999")
+
+    def test_a_quoted_toml_limit_round_trips_exactly(
+        self, config_tree: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        (config_tree / "default" / "atlas.toml").write_text(
+            '[risk]\nmax_margin_utilisation = "0.30000000000000000001"\n', encoding="utf-8"
+        )
+        monkeypatch.setenv("ATLAS_ENV", "development")
+
+        limit = load_settings().risk.max_margin_utilisation
+
+        assert limit == Decimal("0.30000000000000000001")
+
+    def test_a_bare_toml_limit_loses_precision_before_the_model_sees_it(
+        self, config_tree: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The operator-facing hazard, asserted rather than merely documented.
+
+        TOML has no decimal type, so ``tomllib`` parses a bare value as a Python
+        ``float`` and the digits are gone at parse time — before any validation
+        runs. Pydantic's ``float`` to ``Decimal`` conversion is ``str``-mediated
+        and adds no binary artefact of its own, so what arrives is a silently
+        truncated value rather than a visibly wrong one, which is worse.
+        """
+        (config_tree / "default" / "atlas.toml").write_text(
+            "[risk]\nmax_margin_utilisation = 0.30000000000000000001\n", encoding="utf-8"
+        )
+        monkeypatch.setenv("ATLAS_ENV", "development")
+
+        limit = load_settings().risk.max_margin_utilisation
+
+        assert limit == Decimal("0.3")
+        assert limit != Decimal("0.30000000000000000001")
 
 
 class TestSettingsSourceWiring:

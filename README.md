@@ -107,11 +107,15 @@ obtains or constructs a `BrokerAdapter`: the request is inert until some layer
 places it, and no such layer exists — see
 [ADR-0011](docs/adr/0011-execution-builds-the-request-another-layer-owns-the-port.md).
 
-**No trading logic exists yet.** The three boundaries above are contracts, not
-controls: there is no sizing rule, no exposure limit, no drawdown control, no
-kill switch and no real strategy. Nothing outside the test suite produces a
-`TradeIntent`, nothing anywhere turns one into a `RiskVerdict`, and no layer
-owns a `BrokerAdapter`, so the chain they describe is not joined end to end.
+**Almost no trading logic exists yet.** The three boundaries above are
+contracts, and exactly one control now stands behind one of them:
+`evaluate_exposure` refuses an intent once portfolio margin utilisation reaches
+the maximum the process is configured to permit, and a process shaped like live
+money refuses to start until an operator has set that maximum. There is still no
+sizing rule, no drawdown control, no kill switch and no real strategy. Nothing
+outside the test suite produces a `TradeIntent` or hands one to risk, and no
+layer owns a `BrokerAdapter`, so the chain they describe is not joined end to
+end.
 Every package below other than those named above is an importable unit with a
 documented responsibility and no implementation, by design. `atlas.config` is
 the exception — configuration *is* foundation, so it is fully implemented and

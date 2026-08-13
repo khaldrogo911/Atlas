@@ -27,6 +27,7 @@ from atlas.config.settings import (
     LoggingSettings,
     PostgresSettings,
     RedisSettings,
+    RiskSettings,
     get_settings,
     load_settings,
 )
@@ -44,6 +45,7 @@ __all__ = [
     "LoggingSettings",
     "PostgresSettings",
     "RedisSettings",
+    "RiskSettings",
     "deep_merge",
     "get_settings",
     "load_layer",

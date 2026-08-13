@@ -153,21 +153,28 @@ and guarantee they diverge". A risk-local `Volume` that permitted zero, or a
 port it protects — and would disagree at the moment of translation, where nobody
 is looking.
 
-This is the one edge ATLAS-TASK-0011 creates, `atlas.risk → atlas.broker`, and
-it runs downward. The boundary test enumerates the permitted set, and asserts
-separately that `atlas.broker` still contains no import of `atlas.risk`: the
-cheapest way to break a layered graph is to make a downward edge quietly
+This is the edge ATLAS-TASK-0011 creates, `atlas.risk → atlas.broker`, and it
+runs downward; ATLAS-TASK-0017 put `Account` on it, on the same terms and for the
+same reason. It is no longer the package's only outward edge. That task also
+added `atlas.risk → atlas.config`, which runs downward too and carries exactly
+one name — `get_settings`, enough to read this package's own limit and nothing
+else. The boundary test enumerates the permitted set, two packages now with a
+name allowlist on the second, scans for credential-bearing configuration names
+that the allowlist cannot see because reaching them takes no import at all, and
+asserts separately that `atlas.broker` still contains no import of `atlas.risk`:
+the cheapest way to break a layered graph is to make a downward edge quietly
 bidirectional.
 
 ---
 
 ## What this package does not do yet
 
-`atlas.risk` holds the two contracts and none of the controls. **Constructing an
-`APPROVED` verdict does not make it true.** There is no sizing algorithm, no
-exposure limit, no drawdown control, no correlation cap and no kill switch;
-these arrive with the tasks that implement them, and each names its own
-`RejectionReason`.
+`atlas.risk` holds the two contracts and one control. **Constructing an
+`APPROVED` verdict does not make it true.** `evaluate_exposure` is the portfolio
+margin-utilisation limit ATLAS-TASK-0017 added, and it names `EXPOSURE_LIMIT`.
+There is still no sizing algorithm, no drawdown control, no correlation cap and
+no kill switch; those arrive with the tasks that implement them, and each names
+its own `RejectionReason`.
 
 `atlas.strategy` holds the `Strategy` contract and `ConstantStrategy`, an
 inert reference implementation of it — but no engine, lifecycle or registry, so
@@ -181,6 +188,6 @@ and execution acts only on approved output — and only the structural half is
 provable today: risk exposes no path to an order, and an approved volume exists
 nowhere except on an approved verdict. The behavioural half still waits on a
 pipeline to observe — nothing outside the test suite produces an intent, and
-nothing anywhere turns one into a verdict — and
+nothing outside it hands one to `evaluate_exposure` — and
 `tests/unit/risk/test_risk_boundary.py` says so in its own docstring rather than
 letting a reader infer the coverage is wider than it is.

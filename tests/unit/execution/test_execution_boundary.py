@@ -427,6 +427,7 @@ class TestTheBoundariesNextDoorWereNotWidened:
             "RiskVerdict",
             "TradeIntent",
             "VerdictStatus",
+            "evaluate_exposure",
         }
 
     @pytest.mark.parametrize("name", ["OrderRequest", "OrderType", "Price", "BrokerAdapter"])
