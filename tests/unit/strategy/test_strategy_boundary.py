@@ -15,9 +15,9 @@ door.
 What these tests deliberately do **not** claim
     The invariant is that a strategy proposes and cannot bypass risk. Half of
     that is provable today — nothing here can obtain an adapter, name an order or
-    reach :mod:`atlas.execution`, which is still an empty stub. The other half,
-    that a real pipeline routes every intent through risk before an order exists,
-    needs a pipeline. There is no engine, no registry and no consumer yet, so
+    reach :mod:`atlas.execution`. The other half, that a real pipeline routes
+    every intent through risk before an order exists, needs a pipeline. There is
+    no engine, no registry and nothing that turns an intent into a verdict, so
     what is asserted below is the structural half and nothing more.
 """
 

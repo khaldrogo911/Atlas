@@ -24,8 +24,8 @@ exist to keep them true as the codebase grows.
 
 ### Status
 
-Last completed: **ATLAS-TASK-0012 — the strategy boundary**. See
-[`docs/ROADMAP.md`](docs/ROADMAP.md) for the full task tracker.
+Which tasks are complete is recorded in [`docs/ROADMAP.md`](docs/ROADMAP.md),
+and that record is the authoritative one.
 
 The engineering foundation is complete and enforced: dependency management,
 strict typing, linting, formatting, testing, containerisation, layered
@@ -96,13 +96,26 @@ no I/O, holds no clock and draws no randomness, it is not exported from
 lifecycle, registry, engine or scheduling — the rest of what the package's
 responsibility names.
 
-**No trading logic exists yet.** The two boundaries above are contracts, not
+`atlas.execution` has its first contents (TASK-0014): `ExecutionPolicy` and
+`build_order_request`, the consuming half of the boundary TASK-0011 defined. An
+approved `RiskVerdict` and an `ExecutionPolicy` the caller supplies become an
+`OrderRequest` carrying the volume risk approved — never the volume the intent
+requested — and a rejected verdict becomes `None`, because risk declining a
+trade is risk working and is not a broker failure. Nothing in the package stores
+a policy, reads one from configuration or defaults one, and nothing there
+obtains or constructs a `BrokerAdapter`: the request is inert until some layer
+places it, and no such layer exists — see
+[ADR-0011](docs/adr/0011-execution-builds-the-request-another-layer-owns-the-port.md).
+
+**No trading logic exists yet.** The three boundaries above are contracts, not
 controls: there is no sizing rule, no exposure limit, no drawdown control, no
-kill switch and no real strategy. `atlas.execution` is still an empty stub, so
-nothing consumes a verdict. Every package below other than those named above is
-an importable unit with a documented responsibility and no implementation, by
-design. `atlas.config` is the exception — configuration *is* foundation, so it
-is fully implemented and tested.
+kill switch and no real strategy. Nothing outside the test suite produces a
+`TradeIntent`, nothing anywhere turns one into a `RiskVerdict`, and no layer
+owns a `BrokerAdapter`, so the chain they describe is not joined end to end.
+Every package below other than those named above is an importable unit with a
+documented responsibility and no implementation, by design. `atlas.config` is
+the exception — configuration *is* foundation, so it is fully implemented and
+tested.
 
 ---
 

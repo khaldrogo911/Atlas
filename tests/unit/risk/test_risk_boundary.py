@@ -8,12 +8,14 @@ nowhere except on an approved verdict.
 
 What these tests deliberately do **not** claim
     The invariant is that execution acts only on approved risk output.
-    :mod:`atlas.execution` is still an empty stub, so there is no consumer to
+    :mod:`atlas.execution` consumes a verdict as of ATLAS-TASK-0014, but
+    nothing outside the test suite produces a ``TradeIntent`` and nothing
+    anywhere turns one into a ``RiskVerdict``, so there is no pipeline to
     observe and the behavioural half of that sentence is not provable today.
     What is provable now is the structural half — risk exposes no path to an
     order, and the only place an approved volume exists is on a verdict whose
     status is ``APPROVED`` — and that is all that is asserted below. The rest
-    arrives with the task that implements execution.
+    arrives with the task that drives an intent through risk.
 """
 
 from __future__ import annotations
