@@ -1,11 +1,13 @@
 # Architecture Overview
 
-> **Status at ATLAS-TASK-0014.** This document describes the intended
+> **Status at ATLAS-TASK-0018.** This document describes the intended
 > architecture and the boundaries the repository is built to enforce. Three
 > packages hold implementation: `atlas.config` in full, `atlas.broker` (domain
 > models, the `BrokerAdapter` port, two adapters, the exception hierarchy) and
 > `atlas.common` (clock, retry). `atlas.risk` holds its two boundary contracts
-> and none of the controls that reach a decision. `atlas.strategy` holds the
+> and one of the four controls its responsibility names — a
+> portfolio margin-utilisation limit — and none of the sizing, drawdown
+> control or kill switches beside it. `atlas.strategy` holds the
 > contract a strategy satisfies and an inert reference implementation of it, and
 > none of the lifecycle, registry or engine its responsibility names.
 > `atlas.execution` holds one thing — the translation of an approved
