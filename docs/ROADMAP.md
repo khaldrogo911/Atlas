@@ -61,11 +61,29 @@ after the merge, which is how ATLAS-TASK-0012's row was filled in too, by
 merge commit is `1d964186`, and as with `2e567aa5` above it is not what the
 row cites.
 
-ATLAS-TASK-0019 is complete and committed to `main`, and — unlike every task
-above it — is not yet pushed: `origin/main` is `b1f7671a` as this is written,
-and the push is a separately authorised step. Nothing beyond it is defined, and
-this file declares no ATLAS-TASK-0020 and no work after it. The tasks above are
-the ones the repository itself declares; this file does not speculate past them.
+ATLAS-TASK-0019 is complete, committed and pushed. `main` and `origin/main` are
+both `a634fa48`, the closeout commit for that task, so the push its entry below
+describes as the thing that closes its gap against **Complete** has happened;
+that entry is left as written, as it says it should be.
+
+**ADR-0013 is accepted, and ATLAS-TASK-0020 is specified and not implemented.**
+ADR-0013 — `docs/adr/0013-the-application-owns-the-adapter.md`, indexed in
+`docs/adr/README.md` — decides that `apps/atlas-core` owns the `BrokerAdapter`,
+and that the port and its implementations do not move from `packages/broker`.
+`docs/tasks/ATLAS-TASK-0020.md` is the implementation specification for that
+decision. No source file, test or configuration file has changed for either.
+Neither appears in the table above, and ATLAS-TASK-0020 has no row there: that
+table records completed work citing the commit it reached `main` on, and this
+task has no implementation and no commit to cite. Its row is written when it is
+implemented and merged, the way every row above it was.
+
+ATLAS-TASK-0020 does not decide the broker or venue configuration surface.
+ADR-0013 declined to, and the specification names the absence of that surface in
+`AtlasSettings` as the exact dependency blocking construction of a live adapter,
+rather than inventing one to work around it. Nothing beyond ATLAS-TASK-0020 is
+defined, and this file declares no ATLAS-TASK-0021, no ADR-0014 and no work
+after them. The tasks above are the ones the repository itself declares; this
+file does not speculate past them.
 
 ## Completed
 

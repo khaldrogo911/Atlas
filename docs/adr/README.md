@@ -21,6 +21,7 @@ the history of the system's reasoning stays intact.
 | [0010](0010-the-risk-boundary-is-a-verdict-on-an-intent.md) | The risk boundary is a verdict on an intent | Accepted |
 | [0011](0011-execution-builds-the-request-another-layer-owns-the-port.md) | Execution builds the request; another layer owns the port | Accepted |
 | [0012](0012-risk-is-handed-its-state-and-reads-its-own-limits.md) | Risk is handed its state and reads its own limits | Accepted |
+| [0013](0013-the-application-owns-the-adapter.md) | The application owns the adapter; the port stays in the broker package | Accepted |
 
 ## Writing one
 
