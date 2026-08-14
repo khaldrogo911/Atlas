@@ -30,10 +30,11 @@ and in package documentation. This file is where they resolve to a status.
 | ATLAS-TASK-0016 † | Completing the living-document correction | ✅ Complete | `c37b0ebba3b4206705dfd8c06ba6e96c9ebfcf48` |
 | ATLAS-TASK-0017 † | The first risk control: a portfolio margin-utilisation limit | ✅ Complete | `4147f12c8a52b6095b4380ebbc57c92cd058d633` |
 | ATLAS-TASK-0018 † | Index ADR-0012 in `docs/adr/README.md` | ✅ Complete | `dfc1289949dca9f3b8506e6e2b99730495318669` |
+| ATLAS-TASK-0019 † | Living-document correction after the first risk control | ✅ Complete | `394df7debe6c77cbcf4e79cfe2cfc0ef798c1d8a` |
 
 † **Newly specified, not recovered.** The unmarked rows are evidenced by the
 repository record: the task existed, and the commit it cites is the work.
-ATLAS-TASK-0011 through ATLAS-TASK-0018 were each specified and authorised as
+ATLAS-TASK-0011 through ATLAS-TASK-0019 were each specified and authorised as
 new work during the task itself. Their presence in this table is not evidence
 that any was previously planned, and none may be described as recovered project
 history or as previously completed.
@@ -60,10 +61,11 @@ after the merge, which is how ATLAS-TASK-0012's row was filled in too, by
 merge commit is `1d964186`, and as with `2e567aa5` above it is not what the
 row cites.
 
-ATLAS-TASK-0018 is complete and pushed to `main`. Nothing beyond it is defined,
-and this file declares no ATLAS-TASK-0019 and no work after it. The tasks above
-are the ones the repository itself declares; this file does not speculate past
-them.
+ATLAS-TASK-0019 is complete and committed to `main`, and — unlike every task
+above it — is not yet pushed: `origin/main` is `b1f7671a` as this is written,
+and the push is a separately authorised step. Nothing beyond it is defined, and
+this file declares no ATLAS-TASK-0020 and no work after it. The tasks above are
+the ones the repository itself declares; this file does not speculate past them.
 
 ## Completed
 
@@ -951,6 +953,95 @@ same commit. CI passed, verified by `head_sha` rather than by recency: run
 successful, so there is no gap of the kind recorded at ‡. Locally only the test
 suite was run, because the change is documentation and touches no Python; Ruff,
 Black and MyPy ran in CI's Quality Gate rather than on this machine.
+
+### ATLAS-TASK-0019 — living-document correction after the first risk control
+
+Newly specified rather than recovered from the repository record — see the note
+marked † under the status table.
+
+No source file changed. ATLAS-TASK-0017 gave `atlas.risk` its first control that
+reaches a decision, and corrected three passages of
+`docs/architecture/overview.md` and no others by its own explicit instruction —
+so that document's status banner went on saying `atlas.risk` holds "none of the
+controls that reach a decision", which is front matter denying the existence of
+the repository's only risk control. The banner also still read "Status at
+ATLAS-TASK-0014", four tasks behind the table above. This task corrects both
+statements and does nothing else: one file, two passages, both inside the
+banner, plus the specification that governs them.
+
+**The banner was left behind rather than deferred.** ATLAS-TASK-0018 had a
+recorded debt to discharge, listed in the section below. The banner had none:
+the string `banner` does not appear anywhere in ATLAS-TASK-0017's specification,
+and that section never carried an entry for it. Nothing is added there now —
+the omission was found and closed in one pass, so there is no open debt for an
+entry to describe.
+
+**The count of implemented packages did not move, and precedent rather than
+preference decided that.** The banner's first group names packages built out to
+their responsibility; its second names packages holding a contract and a first
+piece. ATLAS-TASK-0015 faced the identical question when ATLAS-TASK-0014 gave
+`atlas.execution` its first working function, and left "Three packages hold
+implementation" byte-identical while adding a second-group sentence instead.
+`atlas.risk` already had a sentence of that shape, so its content was corrected
+— one of the four controls its responsibility names, a portfolio
+margin-utilisation limit, and none of the sizing, drawdown control or kill
+switches beside it — and its position was not. Moving it into the first group
+would assert a package built out to a responsibility that names four controls
+and delivers one, which is the same falsehood pointing the other way.
+
+**Two rows that look stale are not.** The `strategy` row of the package
+responsibilities table names a lifecycle and an engine that do not exist, and
+the `risk` row names four controls of which one does. Both stay verbatim:
+ATLAS-TASK-0015 and ATLAS-TASK-0017 each ruled that the table states a package's
+charter — what it owns and what it must not do — rather than what is built, and
+a charter naming an unbuilt responsibility is that table working as designed.
+The specification records both as checked and deliberately unchanged, alongside
+eleven other passages verified still true, so a later reader finds a ruling
+rather than an oversight.
+
+**No architectural decision was taken.** No ADR was created or edited, no
+contract, boundary, edge or behaviour changed, and the six edges between feature
+packages are the six that were there before. The questions the repository is
+actually blocked behind — what kind of rule governs `apps/`, where the layer
+that owns a `BrokerAdapter` lives, whether a composition root should exist, who
+owns account and portfolio state, and how order identity and idempotency work —
+are named in the specification as out of scope, and none is closer to an answer
+than it was.
+
+**The test suite does not verify this change.** No test reads
+`docs/architecture/overview.md`, and none was added: ATLAS-TASK-0013 and
+ATLAS-TASK-0015 both declined to write one on the reasoning that a test which
+read prose would make the wording of a banner a contract, and this task changes
+that banner's date, which such a test would have frozen. The suite would have
+passed identically had the banner been left stale, corrected wrongly or deleted.
+Acceptance rested on reading the corrected banner against the code, and on
+mechanical checks of the diff: one file, both hunks inside the banner, the three
+ATLAS-TASK-0017 corrections byte-for-byte unchanged, and every ADR blob and this
+file's blob unchanged. The 3389 passing tests — the baseline count, unchanged —
+are evidence that nothing else moved, which is the only thing they can be
+evidence of here.
+
+**The specification was corrected before it was committed.** Unlike
+ATLAS-TASK-0018 this task has one under `docs/tasks/`, and reviewing it against
+the sources it cites found seven wrong cross-references: two section numbers for
+rulings that sit in ATLAS-TASK-0015 §9, one for a rule that sits in
+ATLAS-TASK-0016 §12.1, one line range in `README.md`, one in ADR-0012, and one
+paragraph that credited this file's account of `README.md`'s version banner with
+having decided something about the overview's banner. All seven were repaired
+before the commit, so the file in history is the corrected one and no second
+commit records the difference.
+
+This task has one commit, `394df7debe6c77cbcf4e79cfe2cfc0ef798c1d8a`, covering
+two files: the correction and its specification. It reached `main` by direct
+commit rather than through a pull request, as ATLAS-TASK-0015 through
+ATLAS-TASK-0018 did, so there is no merge commit for the row above to cite.
+Unlike those four, this entry is written before the push rather than after it:
+`origin/main` is `b1f7671a` as this is written and no CI run exists against
+`394df7de`, so the row above records a task whose gates have passed locally and
+not yet in CI. That is a gap against the definition of **Complete** at the top
+of this file, of the kind ‡ records for ATLAS-TASK-0010, and unlike ‡ it is
+closed by the push rather than by a correction here. Locally: Ruff, Black and
+MyPy clean across 99 source files, 3389 passed.
 
 ## Known documentation debt
 
