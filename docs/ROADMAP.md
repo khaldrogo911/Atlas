@@ -29,10 +29,11 @@ and in package documentation. This file is where they resolve to a status.
 | ATLAS-TASK-0015 † | Living-document correction after the execution contract | ✅ Complete | `5e730b4766165a16d994f55251d9eca50df0b842` |
 | ATLAS-TASK-0016 † | Completing the living-document correction | ✅ Complete | `c37b0ebba3b4206705dfd8c06ba6e96c9ebfcf48` |
 | ATLAS-TASK-0017 † | The first risk control: a portfolio margin-utilisation limit | ✅ Complete | `4147f12c8a52b6095b4380ebbc57c92cd058d633` |
+| ATLAS-TASK-0018 † | Index ADR-0012 in `docs/adr/README.md` | ✅ Complete | `dfc1289949dca9f3b8506e6e2b99730495318669` |
 
 † **Newly specified, not recovered.** The unmarked rows are evidenced by the
 repository record: the task existed, and the commit it cites is the work.
-ATLAS-TASK-0011 through ATLAS-TASK-0017 were each specified and authorised as
+ATLAS-TASK-0011 through ATLAS-TASK-0018 were each specified and authorised as
 new work during the task itself. Their presence in this table is not evidence
 that any was previously planned, and none may be described as recovered project
 history or as previously completed.
@@ -59,8 +60,8 @@ after the merge, which is how ATLAS-TASK-0012's row was filled in too, by
 merge commit is `1d964186`, and as with `2e567aa5` above it is not what the
 row cites.
 
-ATLAS-TASK-0017 is complete and pushed to `main`. Nothing beyond it is defined,
-and this file declares no ATLAS-TASK-0018 and no work after it. The tasks above
+ATLAS-TASK-0018 is complete and pushed to `main`. Nothing beyond it is defined,
+and this file declares no ATLAS-TASK-0019 and no work after it. The tasks above
 are the ones the repository itself declares; this file does not speculate past
 them.
 
@@ -893,6 +894,64 @@ it, verified by `head_sha` rather than by recency: run `31733801506` against
 `4147f12c`, concluded successful, so there is no gap of the kind recorded at ‡.
 Locally: Ruff, Black and MyPy `--strict` clean, 3389 passed.
 
+### ATLAS-TASK-0018 — indexing ADR-0012
+
+Newly specified rather than recovered from the repository record — see the note
+marked † under the status table.
+
+`docs/adr/README.md` received exactly one inserted row, for ADR-0012. ADR-0012
+was accepted, and ATLAS-TASK-0017 committed it, but that task's forbidden list
+held the index, so the repository carried a committed ADR that its own committed
+index did not list. This task added the row and did nothing else: one file, one
+insertion, no deletion.
+
+**Both cells were transcribed rather than written.** The index's Title column
+has carried each ADR's own H1 with the `# ADR NNNN — ` prefix removed, and its
+Status column that ADR's `**Status:**` field, for all eleven rows preceding this
+one — checked against the eleven files rather than assumed. The new row's title
+is ADR-0012's H1 less that prefix and its status is `Accepted`, the status the
+ADR itself carries, so nothing about the decision is restated here in different
+words. ADR-0012's content did not change: its blob is
+`497ab06f8bfb5aad3b5344fd27319c34d3dd6537` before this task and in its commit.
+
+**Nothing else was touched.** No source file, no test, no configuration, no
+`.env` catalogue, no ADR's content, no task specification and no other document
+changed. This roadmap did not change either — the entry you are reading is a
+separate closeout, as ATLAS-TASK-0016 and ATLAS-TASK-0017 were closed out.
+
+**The test suite does not verify this change.** No test reads
+`docs/adr/README.md`. `tests/contract/test_repository_structure.py` asserts that
+the directory `docs/adr` exists and asserts nothing about its contents, and no
+other test parses the index or enumerates the ADR files. The suite would have
+passed identically had the row been omitted, misspelled, given a status the ADR
+does not carry, or pointed at a file that does not exist. Acceptance therefore
+rested on mechanical checks of the file and its diff, not on a green suite: the
+table parses to twelve rows numbered `0001` through `0012`, the link resolves to
+a file on disk, the diff is one insertion and zero deletions, and deleting the
+inserted line reproduces the previous blob byte for byte. The 3389 passing tests
+— the baseline count, unchanged — are evidence that nothing else moved, which is
+the only thing they can be evidence of here. A test that parsed the index and
+required every ADR on disk to appear in it would close that gap; writing one was
+outside this task's authorised scope.
+
+**No specification file was written.** ATLAS-TASK-0014 through ATLAS-TASK-0017
+each have one under `docs/tasks/`; this task has none. The change is one row in
+one table, and a specification of the weight those carry would have cost more to
+review than the line it governed. The scope was fixed and approved before any
+edit was made, and the same gates were run, but that record is not in the
+repository.
+
+This task reached `main` by direct push rather than through a pull request, as
+ATLAS-TASK-0015 through ATLAS-TASK-0017 did, so there is no merge commit for the
+row above to cite. It has one commit, `dfc12899`, covering one file, and the
+push was a fast-forward from `eb21d82f`: that commit is an ancestor of this one,
+`main` advanced by exactly one commit, and `main` and `origin/main` are now the
+same commit. CI passed, verified by `head_sha` rather than by recency: run
+`31754787621` against `dfc12899`, Quality Gate and Container & Compose both
+successful, so there is no gap of the kind recorded at ‡. Locally only the test
+suite was run, because the change is documentation and touches no Python; Ruff,
+Black and MyPy ran in CI's Quality Gate rather than on this machine.
+
 ## Known documentation debt
 
 - **ADR-015 and ADR-016 do not exist and cannot be reconstructed.** They were
@@ -905,13 +964,13 @@ Locally: Ruff, Black and MyPy `--strict` clean, 3389 passed.
   never reached. ATLAS-TASK-0014 has since written `0011`, and ADR-0012 was
   accepted for ATLAS-TASK-0017 and committed by it.
 
-- **`docs/adr/README.md` does not index ADR-0012.** That index lists ADR-0001
-  through ADR-0011. ADR-0012 is accepted, is committed as of ATLAS-TASK-0017,
-  and is absent from it. The omission predates that task — it dates from when
-  the ADR was written and left untracked — and ATLAS-TASK-0017 recorded it
-  rather than folding an unrelated correction into a diff that was to be
-  reviewed against its own list of permitted files, which is why
-  `docs/adr/README.md` was on that task's forbidden list. It is more visible now
-  than it was, because the repository holds a committed ADR that its own
-  committed index does not list. The fix is one row in one table; it needs no
-  ADR of its own and no code change.
+- **`docs/adr/README.md` did not index ADR-0012. Discharged by
+  ATLAS-TASK-0018.** The index listed ADR-0001 through ADR-0011 while ADR-0012
+  was accepted and, from ATLAS-TASK-0017, committed — so the repository held a
+  committed ADR that its own committed index did not list. The omission predated
+  ATLAS-TASK-0017, which recorded it rather than folding an unrelated correction
+  into a diff that was to be reviewed against its own list of permitted files,
+  which is why `docs/adr/README.md` was on that task's forbidden list.
+  ATLAS-TASK-0018 added the one row it needed, in `dfc12899`, and the index now
+  lists ADR-0001 through ADR-0012. This entry is kept as the record of a debt
+  that is closed rather than one that is open.
