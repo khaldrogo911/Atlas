@@ -1,29 +1,35 @@
-"""Structural tests for the one edge ATLAS-TASK-0020 creates.
+"""Structural tests for the two edges `apps/atlas-core` has to the broker.
 
-ADR-0013 puts the `BrokerAdapter` in `apps/atlas-core`, which makes
+ADR-0013 puts the `BrokerAdapter` in `apps/atlas-core`, which made
 `apps/atlas-core -> atlas.broker` the first edge from an application to the
-port. These tests hold that edge to the shape the decision gave it: one module
-reaches the port, it reaches it for the abstraction and not for an
-implementation, and holding the adapter did not turn into supervising it or
-trading through it.
+port. ADR-0015 added the second: `composition.py` reaches past the port to the
+implementation it selected, in order to translate settings into it and build
+one. These tests hold both edges to the shape their decisions gave them: the
+port is imported by the module that owns an adapter, the implementation is named
+by the module that constructs one, and holding an adapter still did not turn
+into supervising it or trading through it.
 
 **This file is not an `apps/` import rule, and must not become one.** The four
 package boundary tests each hold a closed `PERMITTED_ATLAS_PACKAGES` tuple — a
 positive statement of everything that package may import. There is no such tuple
-here, nothing is permitted by this file, and no claim is made about what an
-application may import in general. That rule is undecided; ADR-0013 `:242-249`
-records that it creates and implies none, and it would begin with a decision
-record rather than with a test file. Every assertion below is instead a property
-this task creates, each traceable to a decision already accepted: ADR-0006's
-abstraction, and ADR-0013's single owner, downward-granted access and exclusion
-of supervision.
+here. Exactly one permission is stated below, it is named, and it is traceable:
+ADR-0015 selected `MT5BrokerAdapter`, and one module may name that
+implementation and its configuration type for the one purpose the record gave
+it. It extends to no other module, to no other implementation, and to no claim
+about what an application may import in general. That general rule is still
+undecided — ADR-0013 `:242-249` records that it creates and implies none, and
+ADR-0015 leaves it exactly there. It would begin with a decision record rather
+than with a test file, which is precisely how the one permission here began.
+
+Every other assertion is a property some accepted decision creates: ADR-0006's
+abstraction, ADR-0013's single owner, downward-granted access and exclusion of
+supervision, and ADR-0015's bounded selection.
 
 What these tests deliberately do **not** claim
-    That the adapter is used correctly. Nothing in the repository hands one to
-    an owner, because the settings a live adapter would be built from do not
-    exist and choosing an implementation without them is the decision this task
-    declines to make. What is asserted here is the shape of the seam, not
-    traffic across it — there is none.
+    That the adapter is used correctly. ATLAS-TASK-0023 builds one and hands it
+    to an owner; nothing starts that owner, and nothing consumes what it holds.
+    What is asserted here is the shape of the seam, not traffic across it —
+    there is still none.
 """
 
 from __future__ import annotations
@@ -49,8 +55,11 @@ CORE_SRC: Final = APPS_ROOT / "atlas-core" / "src"
 APP_SOURCES: Final = tuple(sorted(APPS_ROOT.rglob("*.py")))
 CORE_SOURCES: Final = tuple(sorted(CORE_SRC.rglob("*.py")))
 
-#: The module ATLAS-TASK-0020 adds, and the sole holder of the new edge.
+#: The module ATLAS-TASK-0020 adds, and the sole importer of the port itself.
 OWNERSHIP_MODULE: Final = CORE_SRC / "atlas" / "apps" / "core" / "broker_ownership.py"
+
+#: The module ATLAS-TASK-0023 adds, and the sole holder of ADR-0015's permission.
+COMPOSITION_MODULE: Final = CORE_SRC / "atlas" / "apps" / "core" / "composition.py"
 
 #: The abstraction the edge exists for.
 ADAPTER: Final = "BrokerAdapter"
@@ -66,20 +75,30 @@ PIPELINE_PACKAGES: Final = ("atlas.strategy", "atlas.risk", "atlas.execution")
 #: Sub-packages that contain an implementation of the port rather than the port.
 CONCRETE_ADAPTER_PACKAGES: Final = ("atlas.broker.mock", "atlas.broker.mt5")
 
-#: Names that would mean an application had chosen an implementation.
+#: The implementation ADR-0015 selected, and the configuration type it is built
+#: from. Nameable in :data:`COMPOSITION_MODULE`, for translation and
+#: construction, and nowhere else under `apps/`.
+SELECTED_IMPLEMENTATION_NAMES: Final = ("MT5BrokerAdapter", "MT5Config")
+
+#: Implementations ADR-0015 did not select. Nameable nowhere under `apps/`.
 #:
-#: ADR-0006 shipped the mock so that a caller cannot tell which adapter it holds.
-#: An application that names one has made the selection decision — and the
-#: entrypoint has no configuration with which to make it. `BaseBrokerAdapter` is
-#: included because inheriting from the base, or naming it, is reaching past the
-#: port to the shared implementation underneath.
-CONCRETE_ADAPTER_NAMES: Final = (
+#: ADR-0006 shipped the mock so that a caller cannot tell which adapter it holds,
+#: and ADR-0015 states plainly that it is not a fallback: a module permitted to
+#: name the selected implementation is still not permitted to name the one it was
+#: selected over, because branching between the two is the decision no record
+#: makes. `BaseBrokerAdapter` is included because inheriting from the base, or
+#: naming it, is reaching past the port to the shared implementation underneath.
+UNSELECTED_IMPLEMENTATION_NAMES: Final = (
     "MockBrokerAdapter",
-    "MT5BrokerAdapter",
     "MockVenue",
-    "MT5Config",
     "BaseBrokerAdapter",
 )
+
+#: Every name that would mean an application had chosen an implementation.
+#:
+#: Retained as the union so that the "can actually fire" case still proves the
+#: scanner sees all five, whichever side of the selection each one falls on.
+CONCRETE_ADAPTER_NAMES: Final = SELECTED_IMPLEMENTATION_NAMES + UNSELECTED_IMPLEMENTATION_NAMES
 
 #: Port methods an owner does not call, and each one's reason.
 #:
@@ -133,6 +152,26 @@ def _with_line(source: str, line: str) -> str:
 def _is_within(module: str, package: str) -> bool:
     """Whether ``module`` is ``package`` or something inside it."""
     return module == package or module.startswith(f"{package}.")
+
+
+def _authorised_importers_of(package: str) -> set[str]:
+    """The app modules ADR-0015 permits to import ``package``, by app id.
+
+    One cell of the `APP_SOURCES` x `CONCRETE_ADAPTER_PACKAGES` cross product is
+    filled and the rest are empty: the composition module may reach the package
+    holding the implementation the record selected. The mock's package is not
+    that one, in the composition module or anywhere else.
+    """
+    if _is_within(package, "atlas.broker.mt5"):
+        return {_app_id(COMPOSITION_MODULE)}
+    return set()
+
+
+def _authorised_namers_of(name: str) -> set[str]:
+    """The app modules ADR-0015 permits to name ``name``, by app id."""
+    if name in SELECTED_IMPLEMENTATION_NAMES:
+        return {_app_id(COMPOSITION_MODULE)}
+    return set()
 
 
 def _atlas_imports(source: str) -> Iterator[str]:
@@ -374,13 +413,18 @@ class TestTheOwnerIsNotWiredToAPipeline:
 
 class TestExactlyOneModuleReachesThePort:
     def test_one_module_imports_the_port_and_it_is_the_ownership_module(self) -> None:
-        """T-11: the edge ADR-0013 authorises exists once, where the owner lives."""
+        """T-11: the edge ADR-0013 authorises exists once, where the owner lives.
+
+        The port is `atlas.broker` itself. ADR-0015 added a second module that
+        reaches *into* that package, for `atlas.broker.mt5` and for nothing that
+        the port declares, so this assertion is written against the exact module
+        rather than against everything beneath it. What reaches beneath it is
+        asserted separately, by name, and is two.
+        """
         importers = {
             _app_id(path)
             for path in CORE_SOURCES
-            if any(
-                _is_within(module, "atlas.broker") for module in _atlas_imports(_source_of(path))
-            )
+            if "atlas.broker" in set(_atlas_imports(_source_of(path)))
         }
 
         assert importers == {_app_id(OWNERSHIP_MODULE)}
@@ -400,22 +444,119 @@ class TestExactlyOneModuleReachesThePort:
         assert taken == {ADAPTER, "BrokerNotConnectedError"}
 
 
-class TestNoApplicationNamesAnImplementation:
+class TestTheCompositionModuleIsTheAuthorisedEdge:
+    """The positive half of ADR-0015's permission: it exists, and it is one.
+
+    The assertions in :class:`TestAnImplementationIsReachedOnlyWhereAuthorised`
+    would all pass if the composition module were deleted. These are what fail
+    in that case, and what fails if a second module acquires the same reach.
+    """
+
+    def test_the_composition_module_is_among_the_scanned_files(self) -> None:
+        assert COMPOSITION_MODULE.is_file()
+        assert COMPOSITION_MODULE in CORE_SOURCES
+        assert COMPOSITION_MODULE in APP_SOURCES
+
+    def test_two_modules_reach_the_broker_package_and_both_are_named(self) -> None:
+        """Owning the port and constructing an implementation are the only reasons."""
+        reachers = {
+            _app_id(path)
+            for path in APP_SOURCES
+            if any(
+                _is_within(module, "atlas.broker") for module in _atlas_imports(_source_of(path))
+            )
+        }
+
+        assert reachers == {_app_id(OWNERSHIP_MODULE), _app_id(COMPOSITION_MODULE)}
+
+    def test_the_composition_module_takes_only_the_selected_implementation(self) -> None:
+        """The edge is used for translation and construction, and nothing else."""
+        taken = set(_broker_names(_source_of(COMPOSITION_MODULE)))
+
+        assert taken == set(SELECTED_IMPLEMENTATION_NAMES)
+
+    @pytest.mark.parametrize("name", SELECTED_IMPLEMENTATION_NAMES)
+    def test_exactly_one_app_module_names_the_selected_implementation(self, name: str) -> None:
+        namers = {
+            _app_id(path) for path in APP_SOURCES if name in _referenced_names(_source_of(path))
+        }
+
+        assert namers == {_app_id(COMPOSITION_MODULE)}
+
+    def test_the_composition_module_does_not_name_the_abstraction(self) -> None:
+        """It constructs an implementation and hands it over; it never types one.
+
+        Naming :data:`ADAPTER` here would put the port in two application
+        modules, which is the property T-12 exists to hold.
+        """
+        assert ADAPTER not in _referenced_names(_source_of(COMPOSITION_MODULE))
+
+    def test_the_composition_module_binds_nothing_at_module_scope_but_its_exports(self) -> None:
+        assert _assigned_at_module_scope(_source_of(COMPOSITION_MODULE)) == {"__all__"}
+
+    @pytest.mark.parametrize("decorator", CACHING_DECORATORS)
+    def test_the_composition_module_caches_nothing(self, decorator: str) -> None:
+        """A cached builder is importable from anywhere, which is a locator."""
+        assert decorator not in _decorator_names(_source_of(COMPOSITION_MODULE))
+
+    def test_the_authorisation_is_bounded_to_one_module(self) -> None:
+        """The helpers grant the composition module and no other, for either check."""
+        granted = _authorised_importers_of("atlas.broker.mt5") | _authorised_namers_of("MT5Config")
+
+        assert granted == {_app_id(COMPOSITION_MODULE)}
+
+    @pytest.mark.parametrize("name", UNSELECTED_IMPLEMENTATION_NAMES)
+    def test_the_authorisation_does_not_extend_to_an_unselected_implementation(
+        self, name: str
+    ) -> None:
+        """`MockBrokerAdapter` is not a fallback, in the one permitted module either."""
+        assert _authorised_namers_of(name) == set()
+        assert name not in _referenced_names(_source_of(COMPOSITION_MODULE))
+
+    def test_the_authorisation_does_not_extend_to_the_mock_package(self) -> None:
+        assert _authorised_importers_of("atlas.broker.mock") == set()
+
+    def test_the_composition_edge_rule_can_actually_fire(self) -> None:
+        """A second module taking the same reach is caught, asserted on real source."""
+        mutated = _with_line(
+            _source_of(CORE_SRC / "atlas" / "apps" / "core" / "__main__.py"),
+            "from atlas.broker.mt5 import MT5BrokerAdapter",
+        )
+
+        assert "atlas.broker.mt5" in set(_atlas_imports(mutated))
+        assert "MT5BrokerAdapter" in _referenced_names(mutated)
+
+
+class TestAnImplementationIsReachedOnlyWhereAuthorised:
+    """T-13, as ADR-0015 left it.
+
+    ADR-0006's abstraction is still only worth having if nothing looks past it
+    without authority. What changed is that one module now has that authority,
+    for one implementation, granted by name in a decision record. These two
+    assertions are the negative half — nothing reaches an implementation it was
+    not granted. The positive half, that the grant is used and used exactly
+    once, is asserted in :class:`TestTheCompositionModuleIsTheAuthorisedEdge`.
+    """
+
     @pytest.mark.parametrize("path", APP_SOURCES, ids=_app_id)
     @pytest.mark.parametrize("package", CONCRETE_ADAPTER_PACKAGES)
-    def test_no_app_module_imports_an_implementation_package(
+    def test_no_app_module_imports_an_implementation_package_it_was_not_granted(
         self, path: Path, package: str
     ) -> None:
-        """T-13: ADR-0006's abstraction is only worth having if nothing looks past it."""
         imported = set(_atlas_imports(_source_of(path)))
+        reaches = any(_is_within(module, package) for module in imported)
 
-        assert not any(_is_within(module, package) for module in imported), imported
+        assert not reaches or _app_id(path) in _authorised_importers_of(package), imported
 
     @pytest.mark.parametrize("path", APP_SOURCES, ids=_app_id)
     @pytest.mark.parametrize("name", CONCRETE_ADAPTER_NAMES)
-    def test_no_app_module_names_an_implementation(self, path: Path, name: str) -> None:
-        """T-13: naming one is choosing one, and nothing here has the means to choose."""
-        assert name not in _referenced_names(_source_of(path))
+    def test_no_app_module_names_an_implementation_it_was_not_granted(
+        self, path: Path, name: str
+    ) -> None:
+        """Naming one is choosing one, and only one module was given the choice."""
+        names_it = name in _referenced_names(_source_of(path))
+
+        assert not names_it or _app_id(path) in _authorised_namers_of(name)
 
 
 class TestNoApplicationSupervisesOrTrades:
@@ -458,8 +599,14 @@ class TestThisFileIsNotAnApplicationImportRule:
 
         assert not [name for name in bound if name.startswith("PERMITTED")], bound
 
-    def test_this_file_states_no_positive_permission_for_an_application(self) -> None:
-        """Every constant here names something excluded, or something to scan with."""
+    def test_this_file_states_one_bounded_permission_and_nothing_wider(self) -> None:
+        """Every constant here is an exclusion, a scanning aid, or the one grant.
+
+        The grant is :data:`SELECTED_IMPLEMENTATION_NAMES`, bounded by
+        :data:`COMPOSITION_MODULE`: one implementation, one module, one record.
+        Pinning the whole set is what makes a wider one impossible to add
+        quietly — a new constant fails here before it can permit anything.
+        """
         bound = _assigned_at_module_scope(_source_of(Path(__file__).resolve()))
 
         assert bound == {
@@ -469,9 +616,12 @@ class TestThisFileIsNotAnApplicationImportRule:
             "APP_SOURCES",
             "CORE_SOURCES",
             "OWNERSHIP_MODULE",
+            "COMPOSITION_MODULE",
             "ADAPTER",
             "PIPELINE_PACKAGES",
             "CONCRETE_ADAPTER_PACKAGES",
+            "SELECTED_IMPLEMENTATION_NAMES",
+            "UNSELECTED_IMPLEMENTATION_NAMES",
             "CONCRETE_ADAPTER_NAMES",
             "UNCALLED_PORT_OPERATIONS",
             "CACHING_DECORATORS",

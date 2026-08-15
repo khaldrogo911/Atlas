@@ -15,6 +15,41 @@ if TYPE_CHECKING:
 
 pytestmark = pytest.mark.unit
 
+BROKER_LOGIN = "987654"
+BROKER_SERVER = "Provider-Demo"
+BROKER_TERMINAL_PATH = r"C:\Program Files\Provider MT5\terminal64.exe"
+# Named for what it is rather than for what it stands in for: a name carrying
+# "password" makes this line a hardcoded-credential finding in every scanner.
+BROKER_SENTINEL = "not-a-real-credential-9f2c1a"
+
+RECORD_KEYS = {
+    "event",
+    "app_name",
+    "environment",
+    "debug",
+    "logging",
+    "postgres",
+    "redis",
+    "duckdb",
+}
+
+
+@pytest.fixture
+def configured_broker(isolated_env: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Configure a broker section a session could be opened from.
+
+    ATLAS-TASK-0023 made start-up build the adapter, so a process without these
+    four values no longer reaches the startup record.
+
+    Returns:
+        The hermetic working directory.
+    """
+    monkeypatch.setenv("ATLAS_BROKER__LOGIN", BROKER_LOGIN)
+    monkeypatch.setenv("ATLAS_BROKER__PASSWORD", BROKER_SENTINEL)
+    monkeypatch.setenv("ATLAS_BROKER__SERVER", BROKER_SERVER)
+    monkeypatch.setenv("ATLAS_BROKER__TERMINAL_PATH", BROKER_TERMINAL_PATH)
+    return isolated_env
+
 
 class TestBuildStartupRecord:
     def test_record_is_json_serialisable(
@@ -65,9 +100,9 @@ class TestBuildStartupRecord:
 
 class TestMain:
     def test_valid_configuration_exits_zero_and_emits_one_json_line(
-        self, isolated_env: Path, capsys: pytest.CaptureFixture[str]
+        self, configured_broker: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        assert isolated_env.exists()
+        assert configured_broker.exists()
 
         exit_code = main()
 
@@ -96,3 +131,73 @@ class TestMain:
         failure = json.loads(captured.err.strip())
         assert failure["event"] == "atlas.core.startup_failed"
         assert "postgres.password" in failure["error"]
+
+
+class TestStartUpNeedsABrokerSectionASessionCouldBeOpenedFrom:
+    """ADR-0015 moved the refusal from wherever a connection is assembled to here.
+
+    A process whose broker section opens nothing used to start and emit its
+    record. It now fails the same way every other configuration failure does,
+    through the handler that was already there, and reaches stdout at all only
+    once the adapter it describes has been built.
+    """
+
+    def test_an_unconfigured_process_fails_before_it_writes_a_record(
+        self, isolated_env: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        assert isolated_env.exists()
+
+        exit_code = main()
+
+        captured = capsys.readouterr()
+        assert exit_code == EXIT_CONFIG_ERROR
+        assert captured.out == ""
+        failure = json.loads(captured.err.strip())
+        assert failure["event"] == "atlas.core.startup_failed"
+
+    def test_the_failure_names_the_broker_section_and_the_offending_field(
+        self,
+        isolated_env: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """A deployment has to be told which value to supply, not merely that one is missing."""
+        assert isolated_env.exists()
+        monkeypatch.setenv("ATLAS_BROKER__LOGIN", BROKER_LOGIN)
+        monkeypatch.setenv("ATLAS_BROKER__TERMINAL_PATH", BROKER_TERMINAL_PATH)
+
+        assert main() == EXIT_CONFIG_ERROR
+
+        failure = json.loads(capsys.readouterr().err.strip())
+        assert "broker" in failure["error"]
+        assert "server" in failure["error"]
+
+    def test_a_failing_start_up_leaks_no_credential_on_either_stream(
+        self,
+        isolated_env: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        assert isolated_env.exists()
+        monkeypatch.setenv("ATLAS_BROKER__PASSWORD", BROKER_SENTINEL)
+
+        assert main() == EXIT_CONFIG_ERROR
+
+        captured = capsys.readouterr()
+        assert BROKER_SENTINEL not in captured.out
+        assert BROKER_SENTINEL not in captured.err
+
+    def test_a_configured_broker_adds_nothing_to_the_startup_record(
+        self, configured_broker: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """The record is what ATLAS-TASK-0001 defined, whether or not a broker is configured."""
+        assert configured_broker.exists()
+
+        assert main() == EXIT_OK
+
+        line = capsys.readouterr().out.strip()
+        record = json.loads(line)
+        assert set(record) == RECORD_KEYS
+        assert "broker" not in record
+        assert BROKER_LOGIN not in line
+        assert BROKER_SENTINEL not in line
