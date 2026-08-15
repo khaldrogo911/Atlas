@@ -35,10 +35,11 @@ and in package documentation. This file is where they resolve to a status.
 | ATLAS-TASK-0021 † | Living-document correction after application ownership of `BrokerAdapter` | ✅ Complete | `d7a68cb4aa6aa1a3465e1305e2b04b432adf00da` |
 | ATLAS-TASK-0022 † | The broker configuration surface: `BrokerSettings` | ✅ Complete | `d0f5b709979a3b634c859b31c77fd5dc41c6ab7b` |
 | ATLAS-TASK-0023 † | Construct the broker adapter at startup | ✅ Complete | `6f5eff81361e904b746a37a8c975683b138972e7` ¶ |
+| ATLAS-TASK-0024 † | CI Container Self-Check After Broker Startup Construction | ✅ Complete | `2c4e7e8bdbf2839b11fe25e38b7b0d9bbd8c4732` |
 
 † **Newly specified, not recovered.** The unmarked rows are evidenced by the
 repository record: the task existed, and the commit it cites is the work.
-ATLAS-TASK-0011 through ATLAS-TASK-0023 were each specified and authorised as
+ATLAS-TASK-0011 through ATLAS-TASK-0024 were each specified and authorised as
 new work during the task itself. Their presence in this table is not evidence
 that any was previously planned, and none may be described as recovered project
 history or as previously completed.
@@ -128,9 +129,10 @@ where ADR-0013 left it. ADR-0014 decided it and ATLAS-TASK-0022 built it, which
 is the ADR-0014 paragraph above. ADR-0015 then decided what to build from that
 surface and ATLAS-TASK-0023 built it, which is the paragraph directly above this
 one.
-ATLAS-TASK-0024 is on `main` as well — `2c4e7e8bdbf2839b11fe25e38b7b0d9bbd8c4732`
-is its implementation, and it carries neither a specification file nor a row in
-the table above. Nothing beyond it is defined, and this file declares no
+ATLAS-TASK-0024 carried that work into the deployment surface, and
+`2c4e7e8bdbf2839b11fe25e38b7b0d9bbd8c4732` is its implementation. It has no
+specification file; its row above was written all the same, as
+ATLAS-TASK-0018's was. Nothing beyond it is defined, and this file declares no
 ATLAS-TASK-0025, no ADR-0016 and no work after them. The tasks above are the
 ones the repository itself declares; this file does not speculate past them.
 
@@ -1539,6 +1541,88 @@ recorded are carried forward untouched as well: that entry's account of
 stand as it wrote them. Correcting any of this is a separate living-document
 task, per the precedent of ATLAS-TASK-0015, ATLAS-TASK-0016, ATLAS-TASK-0019 and
 ATLAS-TASK-0021; this file names no number for it.
+
+### ATLAS-TASK-0024 — CI container self-check after broker startup construction
+
+Newly specified rather than recovered from the repository record — see the note
+marked † under the status table. This one has no specification file: the work
+was authorised in session and implemented directly, so there is no
+`docs/tasks/ATLAS-TASK-0024.md` and no specification commit. There is one
+commit, `2c4e7e8bdbf2839b11fe25e38b7b0d9bbd8c4732`, subject "feat: implement
+TASK-0024", whose parent is ATLAS-TASK-0023's implementation
+`6f5eff81361e904b746a37a8c975683b138972e7`. ATLAS-TASK-0018 stands in the same
+position — a row and a † with no specification file behind them — and this row
+is written the same way.
+
+ATLAS-TASK-0023 made building the trading adapter part of start-up, and the
+repository's deployment surface still described a process that only resolved
+configuration. This task brought that surface level with the application and did
+nothing else. Eight files, 285 insertions against 23 deletions, and none of them
+under `apps/` or `packages/`: no ADR, no `Dockerfile`, no `pyproject.toml`, no
+script, and not one of ATLAS-TASK-0023's implementation files.
+
+**CI states all four values rather than relying on what `MT5Config` tolerates.**
+The Container & Compose job carries `ATLAS_BROKER__LOGIN`,
+`ATLAS_BROKER__PASSWORD`, `ATLAS_BROKER__SERVER` and
+`ATLAS_BROKER__TERMINAL_PATH` in its own environment, as throwaway values
+supplied the way a deployment supplies real ones rather than baked into the
+repository, and the steps hand them to `docker run` by name. Leaning on the
+empty password and bare terminal path `MT5Config` currently accepts would have
+made the job depend on the gap ATLAS-TASK-0023's specification records at §21.2
+and declines to close, so tightening either one later would have broken CI for a
+reason unconnected to what CI was checking.
+
+**Two self-checks, and the second is the one that earns its keep.** The
+configured check asserts more than an exit code: exactly one JSON line, exit
+`0`, the event `atlas.core.startup`, exactly the eight keys ATLAS-TASK-0001
+defined, and none of the four broker values anywhere in the rendered record —
+tested before the record is echoed, so a leak is never printed. The new negative
+check runs the same image with a password and nothing else, and requires exit
+`2`, exactly one line, the event `atlas.core.startup_failed`, and no password in
+the output. ADR-0015's refusal is observed in a container rather than inferred
+from unit tests, and because stderr is merged into stdout, the single line is
+also evidence that the startup record was never reached. A password is supplied
+precisely so that the failure has a credential available to leak and is shown
+not to leak it.
+
+**Compose fails closed on all four.** `docker-compose.yml` interpolates them as
+`${ATLAS_BROKER__LOGIN:?…}` and its three counterparts, each with its own
+message, so `docker compose config` refuses an incomplete `.env` and names the
+first value it is missing before anything starts. No credential is hard-coded
+and no default is invented: a plausible-looking login and server would let a
+deployment that cannot trade start up looking like one that can, and ADR-0015
+had already rejected `MockBrokerAdapter` as a fallback rather than permit that.
+`.env.example` keeps the four commented out for the same reason — unlike
+`POSTGRES_PASSWORD`'s placeholder above them, which no service can be reached
+with — and documents them as facts about a deployment. `README.md`,
+`docs/runbooks/local-stack.md`, `infrastructure/docker/README.md` and
+`infrastructure/deployment/README.md` were qualified to match, including a
+runbook row for `invalid broker configuration` and the observation that compose
+interpolates the whole file, so the refusal applies to `docker compose up -d
+postgres redis` as much as to `atlas-core`.
+
+**Nothing in the application was softened.** No flag, no branch on
+`environment`, no fallback, no mock and no optional construction was introduced,
+and construction stayed mandatory exactly where ATLAS-TASK-0023 put it. The
+§21.2 gap is still open, deliberately: `MT5Config` still accepts an empty
+password and a bare `terminal_path`, and this task worked around that by being
+explicit rather than by closing it, which would have been a new invariant no
+record has decided.
+
+26 tests were added and the contract suite went from 191 to 217, all in
+`tests/contract/test_repository_structure.py`; the full suite is 3699. Locally:
+Ruff, Black and MyPy clean, `pre-commit run --all-files` green, and the pre-push
+pytest hook green.
+
+This commit is what closed ATLAS-TASK-0023's CI gap. Run 43 had failed at "Run
+the image configuration self-check" because the job ran a container with no
+broker configuration to start from, which is the gap recorded at ¶ under the
+status table and described from that task's side in its entry above. CI run 44 —
+id `31888673735`, head `2c4e7e8bdbf2839b11fe25e38b7b0d9bbd8c4732` — is green in
+both jobs, Quality Gate and Container & Compose, with the configured self-check
+and the negative self-check both passing. The row above therefore has no gap of
+its own against the definition of **Complete** at the top of this file, and none
+is recorded for it.
 
 ## Known documentation debt
 
