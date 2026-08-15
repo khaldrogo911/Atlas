@@ -1,6 +1,6 @@
 # Architecture Overview
 
-> **Status at ATLAS-TASK-0020.** This document describes the intended
+> **Status at ATLAS-TASK-0024.** This document describes the intended
 > architecture and the boundaries the repository is built to enforce. Three
 > packages hold implementation: `atlas.config` in full, `atlas.broker` (domain
 > models, the `BrokerAdapter` port, two adapters, the exception hierarchy) and
@@ -117,10 +117,12 @@ the AST of every module in the package, including imports written under a
 
 The chain the data flow draws is not joined end to end. Nothing outside the test
 suite produces a `TradeIntent` or hands one to `atlas.risk`, and although
-`apps/atlas-core` owns the `BrokerAdapter`, no adapter is constructed outside
-that suite for it to hold — so the request `atlas.execution` builds is, today,
-received by nothing. See
-[ADR 0013](../adr/0013-the-application-owns-the-adapter.md).
+`apps/atlas-core` owns the `BrokerAdapter` and builds one at startup from the
+broker configuration it resolves, nothing yet holds that adapter afterwards and
+no session is opened with it — so the request `atlas.execution` builds is,
+today, received by nothing. See
+[ADR 0013](../adr/0013-the-application-owns-the-adapter.md) and
+[ADR 0015](../adr/0015-broker-adapter-selection.md).
 
 ## Package responsibilities
 
@@ -188,9 +190,12 @@ live process's import graph.
 | `dashboard` | Operator observation and authorised control | Long-lived, separately scalable |
 | `research` | Backtests, datasets, experiments | Ad hoc, never alongside live |
 
-At ATLAS-TASK-0001, `atlas-core` has no run loop. Its entrypoint resolves
-configuration, enforces the environment's invariants, emits a JSON startup
-record and exits — which is why `docker-compose.yml` gives it `restart: "no"`.
+At ATLAS-TASK-0001, `atlas-core` has no run loop. Its entrypoint today resolves
+configuration, enforces the environment's invariants, builds the broker adapter
+that configuration describes, emits a JSON startup record and exits — which is
+why `docker-compose.yml` gives it `restart: "no"`. A run that gets that far
+exits `0`; configuration it cannot resolve, or a broker section it cannot
+translate, leaves stdout empty and exits `2` instead.
 
 ## Persistence
 

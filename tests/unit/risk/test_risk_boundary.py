@@ -151,12 +151,22 @@ WHOLE_MODULE: Final = "<module>"
 #: ``get_settings().postgres.password.get_secret_value()`` resolves — and
 #: type-checks — with ``get_settings`` as the only imported name. The escape
 #: path is attribute access, so this scan is attribute-level, and the set is
-#: derived from what actually leaks: the two sections that lead anywhere
-#: credential-bearing, the field itself, its unwrap, its type, and the two
-#: composites that embed the secret in a plain connection string without the
-#: word "password" appearing anywhere. ``safe_dsn`` and ``safe_url`` are
-#: deliberately absent — they mask by construction, and their existence is
-#: precisely the evidence that ``dsn`` and ``url`` do not.
+#: derived from what actually leaks: two of the three sections that lead
+#: anywhere credential-bearing, the field itself, its unwrap, its type, and
+#: the two composites that embed the secret in a plain connection string
+#: without the word "password" appearing anywhere. ``safe_dsn`` and
+#: ``safe_url`` are deliberately absent — they mask by construction, and
+#: their existence is precisely the evidence that ``dsn`` and ``url`` do not.
+#:
+#: The three sections are ``postgres``, ``redis`` and ``broker``, and the
+#: third is deliberately absent from the tuple. ``_referenced_names``
+#: registers the last segment of an ``ast.alias``, so the entry would fire on
+#: ``import atlas.broker`` — a form ``atlas.risk`` is expressly permitted to
+#: use, and one that reaches no credential. No risk module writes it today,
+#: which is the point: the entry would be a false positive waiting for the
+#: first one that did. Nothing escapes by leaving it out, because reaching
+#: the broker credential still requires ``password``, ``get_secret_value`` or
+#: ``SecretStr``, each of which is named below.
 CREDENTIAL_SYMBOLS: Final = (
     "postgres",
     "redis",
