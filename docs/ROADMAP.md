@@ -31,10 +31,11 @@ and in package documentation. This file is where they resolve to a status.
 | ATLAS-TASK-0017 † | The first risk control: a portfolio margin-utilisation limit | ✅ Complete | `4147f12c8a52b6095b4380ebbc57c92cd058d633` |
 | ATLAS-TASK-0018 † | Index ADR-0012 in `docs/adr/README.md` | ✅ Complete | `dfc1289949dca9f3b8506e6e2b99730495318669` |
 | ATLAS-TASK-0019 † | Living-document correction after the first risk control | ✅ Complete | `394df7debe6c77cbcf4e79cfe2cfc0ef798c1d8a` |
+| ATLAS-TASK-0020 † | Implement application ownership of `BrokerAdapter` | ✅ Complete | `55fcbd6161d49c986b0033f37493195c3226493e` |
 
 † **Newly specified, not recovered.** The unmarked rows are evidenced by the
 repository record: the task existed, and the commit it cites is the work.
-ATLAS-TASK-0011 through ATLAS-TASK-0019 were each specified and authorised as
+ATLAS-TASK-0011 through ATLAS-TASK-0020 were each specified and authorised as
 new work during the task itself. Their presence in this table is not evidence
 that any was previously planned, and none may be described as recovered project
 history or as previously completed.
@@ -66,16 +67,16 @@ both `a634fa48`, the closeout commit for that task, so the push its entry below
 describes as the thing that closes its gap against **Complete** has happened;
 that entry is left as written, as it says it should be.
 
-**ADR-0013 is accepted, and ATLAS-TASK-0020 is specified and not implemented.**
-ADR-0013 — `docs/adr/0013-the-application-owns-the-adapter.md`, indexed in
+**ADR-0013 is accepted, and ATLAS-TASK-0020 is implemented.** ADR-0013 —
+`docs/adr/0013-the-application-owns-the-adapter.md`, indexed in
 `docs/adr/README.md` — decides that `apps/atlas-core` owns the `BrokerAdapter`,
 and that the port and its implementations do not move from `packages/broker`.
 `docs/tasks/ATLAS-TASK-0020.md` is the implementation specification for that
-decision. No source file, test or configuration file has changed for either.
-Neither appears in the table above, and ATLAS-TASK-0020 has no row there: that
-table records completed work citing the commit it reached `main` on, and this
-task has no implementation and no commit to cite. Its row is written when it is
-implemented and merged, the way every row above it was.
+decision, and `55fcbd61` is the commit that implements it: the first source
+change either has produced, and the first module under `apps/` that names the
+port. ATLAS-TASK-0020's row was written once that commit reached `main`, the way
+every row above it was. ADR-0013 has no row there and will not acquire one —
+that table records tasks, and a decision is not a task.
 
 ATLAS-TASK-0020 does not decide the broker or venue configuration surface.
 ADR-0013 declined to, and the specification names the absence of that surface in
@@ -1060,6 +1061,115 @@ not yet in CI. That is a gap against the definition of **Complete** at the top
 of this file, of the kind ‡ records for ATLAS-TASK-0010, and unlike ‡ it is
 closed by the push rather than by a correction here. Locally: Ruff, Black and
 MyPy clean across 99 source files, 3389 passed.
+
+### ATLAS-TASK-0020 — application ownership of `BrokerAdapter`
+
+Newly specified rather than recovered from the repository record — see the note
+marked † under the status table.
+
+`apps/atlas-core/src/atlas/apps/core/broker_ownership.py` holds `BrokerOwner`:
+the type that holds this process's adapter, sequences its connection and governs
+what reaches it. ADR-0013 gave the application the adapter and named five
+responsibilities; this implements the three that need no choice of
+implementation — holding, lifecycle sequencing and access — and the fourth,
+construction, only as far as accepting one from a caller. It is the first module
+under `apps/` that names the port at all.
+
+**The owner is handed an adapter and never builds one.** `BrokerOwner(adapter)`
+stores the instance and does nothing else: no I/O, no connect, so an adapter
+that arrived disconnected is still disconnected when the constructor returns. It
+does not inspect, branch on or record which implementation it was given, and
+none of `MockBrokerAdapter`, `MT5BrokerAdapter`, `MockVenue`, `MT5Config` or
+`BaseBrokerAdapter` appears anywhere under `apps/`.
+
+**Access is granted downward, and stopping revokes it rather than merely closing
+it.** The adapter is reachable through one public member, which raises
+`BrokerNotConnectedError` before `start` and again after `stop` — the port's own
+name for "there is no session here", used rather than an application-local error
+so that one condition does not acquire two vocabularies. No new exception type
+was added. There is no module-level instance to import, no lookup by name, no
+cache and no registry; the only name bound at module scope is `__all__`, and
+`atlas.config`'s `@lru_cache` accessor precedent is deliberately not followed,
+because a cached module-level accessor is importable from anywhere and that is
+acquisition-upward wearing the owner's clothes. Reaching the port from below
+requires a reference someone above chose to pass.
+
+**Starting twice raises; stopping twice does not.** A second start is a caller's
+mistake, and treating it as a silent no-op — or as a reason to re-establish the
+session — would answer a question about recovery that no accepted decision
+answers. Teardown is the opposite case: a stop that raised could strand an open
+session, and a failed start must still be safe to unwind, so stop-before-start
+and stop-after-stop are both no-ops. A `connect()` failure propagates unchanged
+and unwrapped, the module holding no `except` clause at all, and leaves the
+owner un-started.
+
+**No adapter is constructed in a process, and that is the point.**
+`__main__.py` is byte-identical and its tests pass unmodified. For the
+entrypoint to build an adapter it would have to choose one, and neither choice
+is available. `MockBrokerAdapter()` takes no configuration, so defaulting to it
+would make a live process trade against a simulator that ADR-0006 exists to
+make indistinguishable. `MT5BrokerAdapter` cannot be constructed at all,
+because `AtlasSettings` carries no broker or venue section from which an
+`MT5Config` could be built. ADR-0013 declined to add that section and this task
+did not invent one — not as a settings model, a TOML block, an environment
+variable, a placeholder with empty defaults, or a comment describing the shape a
+later task should use. What is delivered is the near side of that break; when
+the configuration decision is taken, the work it leaves is one call site.
+
+**The structural tests are not an `apps/` import rule.** The four package
+boundary tests each hold a closed `PERMITTED_ATLAS_PACKAGES` allowlist, a
+positive statement of everything that package may import.
+`tests/unit/test_core_broker_boundary.py` declares no such tuple, permits
+nothing, and makes no claim about what an application may import in general.
+Every assertion in it is a property this task creates — one module reaches the
+port, it reaches it for the abstraction rather than an implementation, and
+holding an adapter did not become supervising one or trading through it. Two of
+its tests assert that about the file itself, pinning its own module-scope names
+to a closed list, so the undecided rule cannot begin here by accident.
+
+**What this task does not claim.** There is no composition root, no run loop, no
+engine, no scheduler and no supervision. Nothing calls `reconnect()` or
+`health()`, nothing polls, and no lock, condition, event, thread or task is
+created — so the owner's own state transitions are unsynchronised, which the
+module's docstring records plainly rather than solves. Nothing outside the test
+suite hands an owner an adapter, so the chain the data flow draws is still not
+joined end to end. Adapter selection and process startup, order identity and
+idempotency, routing and reconciliation, dashboard access, the threading model
+and the remaining risk-state contracts are all exactly where ADR-0013 left them.
+
+200 tests were added and the suite went from 3389 to 3589 — 17 behavioural and
+183 structural. The behavioural tests use no stub, `Mock` or hand-written
+double, because ADR-0006 shipped the mock for this and a hand-rolled one would
+test the double; the connect failure is injected through
+`MockVenue.schedule_failure`, so the adapter takes its real failure path, base
+class and all, and the test that matters asserts the venue's own error object
+reaches the caller by identity rather than by type or message. 55 of the
+structural tests exist only to prove the scanners can fail, on the
+ATLAS-TASK-0012 standard that a scan which inspects nothing passes everything,
+and 21 of those splice a forbidden line into the real source of a shipped
+application module rather than into a snippet — including a port import spliced
+into `__main__.py` under a `TYPE_CHECKING` guard, since a guard is not a hiding
+place. The contract suite is still 191 and the four boundary tests still 757,
+both unchanged, with no allowlist widened: the new file is a module rather than
+a subpackage precisely so that `LEAF_MODULES` does not move.
+
+This task reached `main` by direct push rather than through a pull request, as
+ATLAS-TASK-0015 through ATLAS-TASK-0019 did, so there is no merge commit for the
+row above to cite. It has one commit, `55fcbd61`, covering three files and 827
+insertions with no deletion and no change to any existing file. The push was a
+fast-forward from `a634da02`: that commit is an ancestor of this one, `main`
+advanced by exactly one commit, and `main` and `origin/main` are now the same
+commit. CI passed, verified by `head_sha` rather than by recency: run
+`31850488760` of `.github/workflows/ci.yml` against
+`55fcbd6161d49c986b0033f37493195c3226493e`, Quality Gate and Container &
+Compose both successful, so there is no gap of the kind recorded at ‡. Locally:
+Ruff, Black and MyPy `--strict` clean across 102 source files, 3589 passed.
+
+`docs/architecture/overview.md:118-121` states that no layer owns a
+`BrokerAdapter`. That became false when this commit landed. Correcting it is a
+separate living-document task, per ATLAS-TASK-0020 §17.3 and the precedent of
+ATLAS-TASK-0015, ATLAS-TASK-0016 and ATLAS-TASK-0019, and this file names no
+number for it.
 
 ## Known documentation debt
 
