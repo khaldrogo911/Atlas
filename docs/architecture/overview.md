@@ -1,6 +1,6 @@
 # Architecture Overview
 
-> **Status at ATLAS-TASK-0018.** This document describes the intended
+> **Status at ATLAS-TASK-0020.** This document describes the intended
 > architecture and the boundaries the repository is built to enforce. Three
 > packages hold implementation: `atlas.config` in full, `atlas.broker` (domain
 > models, the `BrokerAdapter` port, two adapters, the exception hierarchy) and
@@ -116,9 +116,11 @@ the AST of every module in the package, including imports written under a
 [ADR 0011](../adr/0011-execution-builds-the-request-another-layer-owns-the-port.md).
 
 The chain the data flow draws is not joined end to end. Nothing outside the test
-suite produces a `TradeIntent` or hands one to `atlas.risk`, and no layer owns a
-`BrokerAdapter` — so the request `atlas.execution` builds is, today, received by
-nothing.
+suite produces a `TradeIntent` or hands one to `atlas.risk`, and although
+`apps/atlas-core` owns the `BrokerAdapter`, no adapter is constructed outside
+that suite for it to hold — so the request `atlas.execution` builds is, today,
+received by nothing. See
+[ADR 0013](../adr/0013-the-application-owns-the-adapter.md).
 
 ## Package responsibilities
 
