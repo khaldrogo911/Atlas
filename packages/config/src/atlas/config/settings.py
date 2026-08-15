@@ -36,6 +36,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "AtlasSettings",
+    "BrokerSettings",
     "DuckDBSettings",
     "LoggingSettings",
     "PostgresSettings",
@@ -180,6 +181,72 @@ class RiskSettings(BaseModel):
     )
 
 
+class BrokerSettings(BaseModel):
+    """What a trading session needs in order to be established.
+
+    These four values are restated here in this package's own primitives rather
+    than imported from the package that will consume them. ADR-0014 records the
+    decision, its reason — the configuration package would otherwise import a
+    feature package to learn its own shape — and its cost: two declarations of
+    overlapping requirements can drift, and independence is what restating buys.
+
+    The section names types, not a venue. Nothing here says which trading
+    connection is assembled, or that one is assembled at all; that question is
+    open and is answered somewhere else.
+
+    Every field carries a default, because every section of
+    :class:`AtlasSettings` is built by ``default_factory`` and a process holding
+    no trading configuration must still resolve its settings. The defaults
+    permit nothing all the same: ``0`` is not a usable account number and an
+    empty string is not a usable server, so no session can be opened from them.
+    Absence is not permission here for the same reason it is not in
+    :class:`RiskSettings` — but the refusal lands where a connection is
+    assembled rather than at start-up, because nothing assembles one yet, and a
+    start-up invariant would refuse every process for want of configuration
+    nothing reads.
+
+    The password is a :class:`~pydantic.SecretStr` supplied through the process
+    environment, which is the route the other two already use. No file under
+    ``config/`` may contain it, and ADR-0003 governs that without amendment.
+    """
+
+    model_config = _SECTION_CONFIG
+
+    login: int = Field(
+        default=0,
+        ge=0,
+        description=(
+            "Trading account number. Zero is the not-configured default and opens "
+            "nothing. Supply ATLAS_BROKER__LOGIN."
+        ),
+    )
+    password: SecretStr = Field(
+        default=SecretStr(""),
+        description=(
+            "Account password, held so it cannot be logged. Supply "
+            "ATLAS_BROKER__PASSWORD through the process environment; no file under "
+            "config/ may carry it."
+        ),
+    )
+    server: str = Field(
+        default="",
+        description=(
+            "Trade server name, as the account provider publishes it. Empty is the "
+            "not-configured default and opens nothing. Supply ATLAS_BROKER__SERVER."
+        ),
+    )
+    terminal_path: Path = Field(
+        default=Path(),
+        description=(
+            "Absolute path to the trading terminal executable. Stated rather than "
+            "left to auto-discovery: a host commonly has several terminals "
+            "installed, one per account provider, and letting a vendor SDK choose "
+            "makes which account Atlas trades a property of the filesystem. Supply "
+            "ATLAS_BROKER__TERMINAL_PATH."
+        ),
+    )
+
+
 class AtlasSettings(BaseSettings):
     """Root settings object for every Project Atlas process."""
 
@@ -209,6 +276,7 @@ class AtlasSettings(BaseSettings):
     redis: RedisSettings = Field(default_factory=RedisSettings)
     duckdb: DuckDBSettings = Field(default_factory=DuckDBSettings)
     risk: RiskSettings = Field(default_factory=RiskSettings)
+    broker: BrokerSettings = Field(default_factory=BrokerSettings)
 
     @classmethod
     def settings_customise_sources(

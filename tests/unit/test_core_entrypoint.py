@@ -40,6 +40,28 @@ class TestBuildStartupRecord:
         assert "also-secret" not in rendered
         assert "***" in rendered
 
+    def test_record_omits_the_broker_section_entirely(
+        self, isolated_env: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The record gained no key when ``AtlasSettings`` gained a section.
+
+        ATLAS-TASK-0022 left the record untouched: ``risk`` is already a section
+        it omits, no rule anywhere says which sections appear, and inventing one
+        here would put a live-trading credential a masking bug away from a log
+        line. This test is what fails if the section is ever added silently.
+        """
+        assert isolated_env.exists()
+        monkeypatch.setenv("ATLAS_BROKER__LOGIN", "987654")
+        monkeypatch.setenv("ATLAS_BROKER__PASSWORD", "broker-secret")
+        monkeypatch.setenv("ATLAS_BROKER__SERVER", "Provider-Demo")
+
+        record = build_startup_record(load_settings())
+        rendered = json.dumps(record)
+
+        assert "broker" not in record
+        assert "broker-secret" not in rendered
+        assert "987654" not in rendered
+
 
 class TestMain:
     def test_valid_configuration_exits_zero_and_emits_one_json_line(

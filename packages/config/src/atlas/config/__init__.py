@@ -23,6 +23,7 @@ from atlas.config.paths import (
 )
 from atlas.config.settings import (
     AtlasSettings,
+    BrokerSettings,
     DuckDBSettings,
     LoggingSettings,
     PostgresSettings,
@@ -38,6 +39,7 @@ __all__ = [
     "DEFAULT_LAYER",
     "ENVIRONMENT_ENV_VAR",
     "AtlasSettings",
+    "BrokerSettings",
     "ConfigurationError",
     "DuckDBSettings",
     "Environment",

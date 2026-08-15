@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
+import ast
+import inspect
 from decimal import Decimal
-from typing import TYPE_CHECKING, cast
+from pathlib import Path
+from typing import TYPE_CHECKING, Final, cast
 
 import pytest
-from pydantic import SecretStr, ValidationError
+from pydantic import BaseModel, SecretStr, ValidationError
 
+import atlas.config
 from atlas.config import (
     AtlasSettings,
+    BrokerSettings,
     ConfigurationError,
     Environment,
     LayeredTomlSource,
@@ -19,8 +24,6 @@ from atlas.config import (
 )
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from pydantic_settings import PydanticBaseSettingsSource
 
 pytestmark = pytest.mark.unit
@@ -37,6 +40,39 @@ format = "json"
 host = "localhost"
 pool_max_size = 10
 """
+
+CONFIG_PACKAGE_DIR: Final = Path(inspect.getfile(atlas.config)).parent
+CONFIG_PACKAGE_SOURCES: Final = tuple(sorted(CONFIG_PACKAGE_DIR.rglob("*.py")))
+
+#: The four broker values, and the whole of them.
+BROKER_FIELDS: Final = ("login", "password", "server", "terminal_path")
+
+#: Every section on :class:`AtlasSettings` after ATLAS-TASK-0022.
+SECTION_NAMES: Final = frozenset({"logging", "postgres", "redis", "duckdb", "risk", "broker"})
+
+#: Strings whose presence in the configuration package would mean the broker
+#: section had been written against a venue rather than in primitives.
+#:
+#: ADR-0014 decided that ``MT5Config`` is "neither embedded in the settings model
+#: nor named by it", and that no ``atlas.config -> atlas.broker`` edge exists.
+#: The first three names would breach the naming half even without an import;
+#: ``BrokerAdapter`` is the port itself, which this package has no business
+#: knowing about. Matching is case-insensitive so that a lower-cased spelling
+#: cannot slip past.
+VENUE_SYMBOLS: Final = ("MT5Config", "mt5", "MetaTrader", "BrokerAdapter")
+
+#: Concrete venues and products the section must not name.
+#:
+#: ADR-0014: "A section of ``int``, ``SecretStr``, ``str`` and ``Path`` is
+#: compatible with an MT5 adapter and commits to nothing." Naming one in the
+#: docstring would be the commitment the primitives avoid.
+VENUE_NAMES: Final = ("mt5", "mt4", "metatrader", "ctrader", "oanda", "fxcm", "dxtrade")
+
+#: Fields that would turn the section into a statement about which broker.
+#:
+#: Any of these is adapter selection wearing a configuration hat, and ADR-0013
+#: and ADR-0014 both leave adapter selection open. See ATLAS-TASK-0022 §6.14.
+VENUE_IDENTITY_FIELDS: Final = ("venue", "provider", "broker_type", "kind", "enabled", "type")
 
 
 class TestDefaults:
@@ -496,6 +532,185 @@ class TestTheRiskLimitField:
         assert limit != Decimal("0.30000000000000000001")
 
 
+class TestTheBrokerSection:
+    def test_the_section_constructs_with_no_arguments(self) -> None:
+        """Every section is built by ``default_factory``, so this must not raise."""
+        broker = BrokerSettings()
+
+        assert broker.login == 0
+        assert broker.password == SecretStr("")
+        assert broker.server == ""
+        assert broker.terminal_path == Path()
+
+    def test_the_section_has_exactly_four_fields_in_order(self) -> None:
+        """A fifth field fails here rather than arriving unnoticed.
+
+        ADR-0014 fixed the surface at the four values a session cannot be
+        established without. ``timeout_ms``, ``portable`` and
+        ``server_utc_offset`` are deliberately absent — each has a deliberate
+        default where it is consumed, and nothing here reads them.
+        """
+        assert tuple(BrokerSettings.model_fields) == BROKER_FIELDS
+
+    def test_the_section_is_frozen(self) -> None:
+        broker = BrokerSettings()
+
+        with pytest.raises(ValidationError):
+            broker.login = 1
+
+    def test_an_unknown_key_inside_the_section_is_rejected(
+        self, config_tree: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        (config_tree / "default" / "atlas.toml").write_text(
+            "[broker]\nlogn = 1\n", encoding="utf-8"
+        )
+        monkeypatch.setenv("ATLAS_ENV", "development")
+
+        with pytest.raises(ConfigurationError):
+            load_settings()
+
+    def test_a_negative_login_is_rejected(
+        self, isolated_env: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        assert isolated_env.exists()
+        monkeypatch.setenv("ATLAS_BROKER__LOGIN", "-1")
+
+        with pytest.raises(ConfigurationError, match="login"):
+            load_settings()
+
+    def test_the_root_carries_six_sections_including_broker(self, isolated_env: Path) -> None:
+        assert isolated_env.exists()
+        sections = {
+            name
+            for name, field in AtlasSettings.model_fields.items()
+            if isinstance(field.annotation, type) and issubclass(field.annotation, BaseModel)
+        }
+
+        assert sections == SECTION_NAMES
+        assert load_settings().broker == BrokerSettings()
+
+
+class TestTheBrokerSecret:
+    def test_the_broker_password_does_not_appear_in_repr(
+        self, isolated_env: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        assert isolated_env.exists()
+        monkeypatch.setenv("ATLAS_BROKER__PASSWORD", "broker-secret")
+
+        settings = load_settings()
+
+        assert settings.broker.password.get_secret_value() == "broker-secret"
+        assert "broker-secret" not in repr(settings)
+        assert "broker-secret" not in str(settings)
+
+
+class TestBrokerConfigurationSources:
+    @staticmethod
+    def _configure_valid_production(monkeypatch: pytest.MonkeyPatch) -> None:
+        """Satisfy every existing production invariant and nothing more."""
+        monkeypatch.setenv("ATLAS_ENV", "production")
+        monkeypatch.setenv("ATLAS_POSTGRES__PASSWORD", "supplied-by-secret-store")
+        monkeypatch.setenv("ATLAS_LOGGING__FORMAT", "json")
+        monkeypatch.setenv("ATLAS_DEBUG", "false")
+        monkeypatch.setenv("ATLAS_RISK__MAX_MARGIN_UTILISATION", "0.5")
+
+    def test_production_starts_with_no_broker_configuration(
+        self, isolated_env: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The pin that stops a broker production invariant arriving by accident.
+
+        There is no invariant, on purpose: nothing constructs a connection yet,
+        so refusing to start would refuse every production process for want of
+        configuration nothing reads. The default is safe by its own shape
+        instead — a login of zero and an empty server open nothing. If an
+        invariant is ever added, this test is what fails.
+        """
+        assert isolated_env.exists()
+        self._configure_valid_production(monkeypatch)
+
+        settings = load_settings()
+
+        assert settings.environment is Environment.PRODUCTION
+        assert settings.broker == BrokerSettings()
+        assert settings.broker.login == 0
+        assert settings.broker.server == ""
+
+    def test_each_field_loads_from_its_own_environment_variable(
+        self, isolated_env: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        assert isolated_env.exists()
+        monkeypatch.setenv("ATLAS_BROKER__LOGIN", "987654")
+        monkeypatch.setenv("ATLAS_BROKER__PASSWORD", "broker-secret")
+        monkeypatch.setenv("ATLAS_BROKER__SERVER", "Provider-Demo")
+        monkeypatch.setenv("ATLAS_BROKER__TERMINAL_PATH", "/opt/terminal/run")
+
+        broker = load_settings().broker
+
+        assert broker.login == 987654
+        assert broker.password.get_secret_value() == "broker-secret"
+        assert broker.server == "Provider-Demo"
+        assert broker.terminal_path == Path("/opt/terminal/run")
+
+    def test_an_environment_variable_beats_a_toml_layer(
+        self, config_tree: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The section takes the ordinary precedence, with no special handling.
+
+        The layer is written into the fixture's own tree. Nothing under the
+        repository's ``config/`` declares a broker section, and
+        :meth:`TestTheBrokerBoundary.test_no_toml_layer_declares_a_broker_section`
+        is what keeps that true.
+        """
+        (config_tree / "default" / "atlas.toml").write_text(
+            '[broker]\nlogin = 111\nserver = "From-Toml"\n', encoding="utf-8"
+        )
+        monkeypatch.setenv("ATLAS_ENV", "development")
+        monkeypatch.setenv("ATLAS_BROKER__LOGIN", "222")
+
+        broker = load_settings().broker
+
+        assert broker.login == 222
+        # The key the environment did not override still comes from the layer.
+        assert broker.server == "From-Toml"
+
+
+class TestTheBrokerBoundary:
+    """ADR-0014's central constraint, asserted rather than asserted-in-prose.
+
+    These are not a general import rule for the configuration package. They
+    permit nothing, define no allowlist, and say nothing about what
+    ``atlas.config`` may import in general — they assert one absence, which is
+    the one ADR-0014 decided.
+    """
+
+    def test_no_toml_layer_declares_a_broker_section(self, repo_root: Path) -> None:
+        offenders = [
+            str(path.relative_to(repo_root))
+            for path in sorted((repo_root / "config").rglob("*.toml"))
+            if "[broker]" in path.read_text(encoding="utf-8")
+        ]
+
+        assert offenders == []
+
+    @pytest.mark.parametrize("source", CONFIG_PACKAGE_SOURCES, ids=lambda path: path.name)
+    def test_no_configuration_module_names_a_venue(self, source: Path) -> None:
+        text = source.read_text(encoding="utf-8").lower()
+        found = [symbol for symbol in VENUE_SYMBOLS if symbol.lower() in text]
+
+        assert found == []
+
+    @pytest.mark.parametrize("source", CONFIG_PACKAGE_SOURCES, ids=lambda path: path.name)
+    def test_no_configuration_module_imports_the_broker_package(self, source: Path) -> None:
+        assert not _imports_atlas_broker(source.read_text(encoding="utf-8"))
+
+    def test_the_section_names_no_venue_and_carries_no_discriminator(self) -> None:
+        """Naming the section ``broker`` must not smuggle in adapter selection."""
+        docstring = (BrokerSettings.__doc__ or "").lower()
+
+        assert [name for name in VENUE_NAMES if name in docstring] == []
+        assert [name for name in VENUE_IDENTITY_FIELDS if name in BrokerSettings.model_fields] == []
+
+
 class TestSettingsSourceWiring:
     def test_the_toml_source_is_ranked_below_the_environment_sources(self) -> None:
         init, env, dotenv, secrets = (_marker() for _ in range(4))
@@ -512,6 +727,33 @@ class TestSettingsSourceWiring:
         # Order is precedence: the TOML layers must sit below every other source.
         assert sources[:4] == (init, env, dotenv, secrets)
         assert isinstance(sources[4], LayeredTomlSource)
+
+
+def _is_within(module: str, package: str) -> bool:
+    """Whether ``module`` is ``package`` or something inside it."""
+    return module == package or module.startswith(f"{package}.")
+
+
+def _imports_atlas_broker(source: str) -> bool:
+    """Whether the source imports ``atlas.broker`` in any form.
+
+    ``ast.walk`` reaches into a ``TYPE_CHECKING`` block like any other block,
+    which is the point: an import written for annotations alone is still an edge
+    in the graph, and the four package boundary tests all scan for one this way.
+    """
+    tree = ast.parse(source)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import) and any(
+            _is_within(alias.name, "atlas.broker") for alias in node.names
+        ):
+            return True
+        if (
+            isinstance(node, ast.ImportFrom)
+            and node.module is not None
+            and _is_within(node.module, "atlas.broker")
+        ):
+            return True
+    return False
 
 
 def _marker() -> PydanticBaseSettingsSource:
