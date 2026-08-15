@@ -1,12 +1,17 @@
 # ==============================================================================
 # Project Atlas — local development stack.
 #
-#   cp .env.example .env      # required: POSTGRES_PASSWORD has no default
+#   cp .env.example .env      # then fill in POSTGRES_PASSWORD and the four
+#                             # ATLAS_BROKER__* values; none of them has a default
 #   docker compose config     # validate
 #   docker compose up -d
 #
-# No service carries a default credential. Compose interpolation fails loudly
-# if POSTGRES_PASSWORD is unset rather than falling back to a known value.
+# No service carries a default credential, and none is invented here. Compose
+# interpolation fails loudly if POSTGRES_PASSWORD or any of the four
+# ATLAS_BROKER__* values is unset, rather than falling back to a known value —
+# which means `docker compose config` refuses an incomplete `.env` before
+# anything starts. A login, a server name, a terminal path and a password are
+# facts about a deployment; the repository holds none of them.
 # ==============================================================================
 
 name: atlas
@@ -74,9 +79,11 @@ services:
     # source of truth. A contract test enforces this; do not edit one alone.
     image: atlas/atlas-core:0.2.0a0
     container_name: atlas-core
-    # Deliberate: atlas-core currently performs a configuration self-check and
-    # exits 0. A restarting policy would turn a clean exit into a crash loop.
-    # This becomes "unless-stopped" once the service acquires a run loop.
+    # Deliberate: a configured atlas-core currently performs a configuration
+    # self-check and exits 0. A restarting policy would turn a clean exit into a
+    # crash loop — and, since ATLAS-TASK-0023, would also retry a broker
+    # configuration that cannot open a session, which no amount of restarting
+    # fixes. This becomes "unless-stopped" once the service acquires a run loop.
     restart: "no"
     depends_on:
       postgres:
@@ -98,6 +105,14 @@ services:
       ATLAS_REDIS__PORT: "6379"
       ATLAS_REDIS__DATABASE: "0"
       ATLAS_DUCKDB__PATH: /app/data/atlas.duckdb
+      # Start-up builds the trading adapter these describe, so a container
+      # without them exits 2. Interpolated rather than defaulted: a default
+      # here would be a credential the repository invented, and a deployment
+      # that cannot trade would look like one that can.
+      ATLAS_BROKER__LOGIN: ${ATLAS_BROKER__LOGIN:?ATLAS_BROKER__LOGIN must be set in .env}
+      ATLAS_BROKER__PASSWORD: ${ATLAS_BROKER__PASSWORD:?ATLAS_BROKER__PASSWORD must be set in .env}
+      ATLAS_BROKER__SERVER: ${ATLAS_BROKER__SERVER:?ATLAS_BROKER__SERVER must be set in .env}
+      ATLAS_BROKER__TERMINAL_PATH: ${ATLAS_BROKER__TERMINAL_PATH:?ATLAS_BROKER__TERMINAL_PATH must be set in .env}
     volumes:
       - atlas-data:/app/data
     networks:

@@ -128,6 +128,45 @@ _POETRY_VERSION_IN_DOCKERFILE = re.compile(r"^ARG POETRY_VERSION=(\S+)", re.MULT
 _POETRY_VERSION_IN_WORKFLOW = re.compile(r'^\s*POETRY_VERSION:\s*"?([^"\s]+)"?', re.MULTILINE)
 _CORE_IMAGE_TAG_IN_COMPOSE = re.compile(r"^\s*image:\s*atlas/atlas-core:(\S+)", re.MULTILINE)
 
+COMPOSE_FILE = REPO_ROOT / "docker-compose.yml"
+ENV_TEMPLATE = REPO_ROOT / ".env.example"
+
+#: The four values a trading session cannot be established without. ADR-0015
+#: made start-up construct the adapter they describe, so a process without them
+#: exits 2 rather than starting.
+BROKER_VARIABLES = (
+    "ATLAS_BROKER__LOGIN",
+    "ATLAS_BROKER__PASSWORD",
+    "ATLAS_BROKER__SERVER",
+    "ATLAS_BROKER__TERMINAL_PATH",
+)
+
+
+#: Names of the two steps that run the built image. Read by step rather than by
+#: whole file: both pass ``ATLAS_BROKER__PASSWORD``, so a file-wide search cannot
+#: tell which one dropped a value.
+CONFIGURED_STEP = "Run the image configuration self-check"
+UNCONFIGURED_STEP = "Run the image self-check without broker configuration"
+
+
+def _declared_in_workflow(variable: str) -> str:
+    """Return the value the CI workflow declares for an environment variable."""
+    pattern = re.compile(rf'^\s*{re.escape(variable)}:\s*"?([^"\n]+?)"?\s*$', re.MULTILINE)
+    matches = pattern.findall(CI_WORKFLOW.read_text(encoding="utf-8"))
+    assert matches, f"{variable} is not declared in {CI_WORKFLOW.name}"
+    return str(matches[0])
+
+
+def _workflow_step(name: str) -> str:
+    """Return the body of one named workflow step, up to the next step."""
+    pattern = re.compile(
+        rf"^(\s*)- name: {re.escape(name)}$(.*?)(?=^\1- name: |\Z)",
+        re.MULTILINE | re.DOTALL,
+    )
+    match = pattern.search(CI_WORKFLOW.read_text(encoding="utf-8"))
+    assert match, f"{CI_WORKFLOW.name} declares no step named {name!r}"
+    return match.group(2)
+
 
 def _tool_order(path: Path, pattern: re.Pattern[str]) -> list[str]:
     """Return the quality tools a file invokes, in first-invocation order.
@@ -261,6 +300,65 @@ class TestToolchainParity:
         # older Poetry can reject the lock outright.
         image = _sole_match(_POETRY_VERSION_IN_DOCKERFILE, REPO_ROOT / "Dockerfile")
         assert image == _sole_match(_POETRY_VERSION_IN_WORKFLOW, CI_WORKFLOW)
+
+
+class TestBrokerConfigurationIsADeploymentFact:
+    """Where the four broker values may come from, and where they may not.
+
+    ATLAS-TASK-0023 made start-up construct the trading adapter, which turned a
+    missing broker section from something nobody read into something that stops
+    a container. Two places have to supply it and one must never: a default in
+    the repository would let a deployment that cannot trade start up looking
+    like one that can, which is the failure ADR-0015 rejected a mock fallback
+    to avoid.
+    """
+
+    @pytest.mark.parametrize("variable", BROKER_VARIABLES)
+    def test_compose_requires_the_variable_and_fails_closed(self, variable: str) -> None:
+        # `:?` refuses the file and names the value, before anything starts.
+        compose = COMPOSE_FILE.read_text(encoding="utf-8")
+        assert f"${{{variable}:?" in compose, f"{variable} is not required by compose"
+
+    @pytest.mark.parametrize("variable", BROKER_VARIABLES)
+    def test_compose_invents_no_default_for_the_variable(self, variable: str) -> None:
+        # `:-` would substitute a credential the repository made up.
+        compose = COMPOSE_FILE.read_text(encoding="utf-8")
+        assert f"${{{variable}:-" not in compose, f"{variable} has a default in compose"
+
+    @pytest.mark.parametrize("variable", BROKER_VARIABLES)
+    def test_the_environment_template_ships_no_value_for_the_variable(self, variable: str) -> None:
+        # Commented guidance is the point of the template; a live value in it
+        # would be committed configuration for an account nobody owns.
+        live = re.compile(rf"^\s*{re.escape(variable)}=(.*)$", re.MULTILINE)
+        assert not live.findall(ENV_TEMPLATE.read_text(encoding="utf-8"))
+
+    @pytest.mark.parametrize("variable", BROKER_VARIABLES)
+    def test_ci_hands_the_variable_to_the_configured_self_check(self, variable: str) -> None:
+        step = _workflow_step(CONFIGURED_STEP)
+        assert f"-e {variable}" in step, f"the self-check does not pass {variable}"
+
+    @pytest.mark.parametrize("variable", ["LOGIN", "SERVER", "TERMINAL_PATH"])
+    def test_ci_withholds_the_variable_from_the_unconfigured_check(self, variable: str) -> None:
+        # The negative check earns its exit code by being short of a session, so
+        # it may name the password but nothing that would complete the section.
+        step = _workflow_step(UNCONFIGURED_STEP)
+        assert f"-e ATLAS_BROKER__{variable}" not in step
+
+    @pytest.mark.parametrize("variable", BROKER_VARIABLES)
+    def test_ci_declares_a_usable_value_for_the_variable(self, variable: str) -> None:
+        # Stated explicitly rather than left to the empty password and bare path
+        # MT5Config still accepts, so closing either gap does not break CI.
+        assert _declared_in_workflow(variable).strip()
+
+    def test_the_ci_login_would_survive_the_validation_it_already_faces(self) -> None:
+        assert int(_declared_in_workflow("ATLAS_BROKER__LOGIN")) > 0
+
+    def test_ci_proves_a_configured_container_reaches_its_startup_record(self) -> None:
+        assert '"atlas.core.startup"' in _workflow_step(CONFIGURED_STEP)
+
+    def test_ci_proves_an_unconfigured_container_refuses_to_start(self) -> None:
+        # The refusal ADR-0015 decided is observed rather than assumed.
+        assert '"atlas.core.startup_failed"' in _workflow_step(UNCONFIGURED_STEP)
 
 
 class TestConfigurationTree:

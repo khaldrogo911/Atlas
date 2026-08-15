@@ -9,7 +9,10 @@ information anyone will ever have about the requirements.
 The unit of deployment is a **container image**, built by the root `Dockerfile`:
 multi-stage, non-root (uid 1000), carrying only the virtual environment and
 application source. That much is platform-independent and already validated in
-CI, which builds the image and runs its configuration self-check on every merge.
+CI, which builds the image on every merge and runs its configuration self-check
+twice: once with throwaway broker configuration, which must exit `0`, and once
+without, which must exit `2`. A platform that cannot deliver the four
+`ATLAS_BROKER__*` values to the process therefore cannot run this image.
 
 ## What is not settled
 

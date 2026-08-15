@@ -300,11 +300,18 @@ poetry run atlas-core
 ```
 
 `atlas-core` resolves configuration from every layer, enforces the active
-environment's invariants, writes a JSON startup record to stdout, and exits `0`.
-It exits `2` with a diagnostic on stderr if configuration is invalid. Until the
-trading pipeline exists, this is the whole of the core service, and it is
-genuinely useful: it is the fastest way to prove a deployment's configuration
-resolves the way you think it does.
+environment's invariants, builds the trading adapter its broker section
+describes, writes a JSON startup record to stdout, and exits `0`. It exits `2`
+with a diagnostic on stderr if configuration is invalid. Until the trading
+pipeline exists, this is the whole of the core service, and it is genuinely
+useful: it is the fastest way to prove a deployment's configuration resolves the
+way you think it does.
+
+Since ATLAS-TASK-0023 that includes the broker section, so the four
+`ATLAS_BROKER__*` values must be present — in `.env` or the environment — before
+either command above works. Without them the process exits `2` and names the
+fields it could not use, and `docker compose` refuses the file before starting
+anything. `.env.example` says what the four are.
 
 ```bash
 ATLAS_ENV=demo poetry run atlas-core        # check the demo layer
@@ -346,12 +353,18 @@ undeclared marker fails the run rather than silently doing nothing.
 ## Docker
 
 ```bash
+cp .env.example .env           # then fill in POSTGRES_PASSWORD and ATLAS_BROKER__*
 docker compose config          # validate the compose file
 docker compose build
 docker compose up -d           # postgres + redis + a core config self-check
 docker compose logs -f atlas-core
 docker compose down -v         # -v also drops the data volumes
 ```
+
+Every command above needs a complete `.env`, including the datastore-only ones:
+compose interpolates the whole file before it runs anything, and both
+`POSTGRES_PASSWORD` and the four `ATLAS_BROKER__*` values fail closed rather than
+defaulting. That is the same refusal `POSTGRES_PASSWORD` has always had.
 
 Services:
 
@@ -361,9 +374,10 @@ Services:
 | `redis` | `redis:7-alpine` | healthcheck via `redis-cli ping`, AOF persistence, named volume |
 | `atlas-core` | built from `Dockerfile` | waits for both datastores to report healthy |
 
-`atlas-core` uses `restart: "no"` deliberately. It currently performs a
+`atlas-core` uses `restart: "no"` deliberately. Configured, it performs a
 configuration self-check and exits `0`; a restart policy that resurrects a
-cleanly-exited container would produce an infinite loop. It becomes
+cleanly-exited container would produce an infinite loop. Misconfigured, it exits
+`2`, and restarting would only repeat a failure that no retry can fix. It becomes
 `unless-stopped` when the service acquires a run loop.
 
 The image is a multi-stage build: dependencies are resolved in a builder stage

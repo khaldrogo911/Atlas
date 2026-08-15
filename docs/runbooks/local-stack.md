@@ -11,7 +11,9 @@ Development only. No live trading component exists at ATLAS-TASK-0001.
 ## Normal startup
 
 ```bash
-cp .env.example .env          # once; POSTGRES_PASSWORD has no default
+cp .env.example .env          # once; then fill in POSTGRES_PASSWORD and the
+                              # four ATLAS_BROKER__* values. None has a default,
+                              # and compose refuses the file until all are set.
 docker compose config         # validate before starting anything
 docker compose up -d postgres redis
 docker compose ps             # both must report (healthy)
@@ -30,12 +32,20 @@ Expected `atlas-core` output — one JSON line, exit code `0`:
 
 ```
 error: required variable POSTGRES_PASSWORD is missing a value
+error: required variable ATLAS_BROKER__LOGIN is missing a value
 ```
 
-**Diagnosis:** no `.env`, or `POSTGRES_PASSWORD` is unset in it. This is
-deliberate — no service in this repository carries a default credential.
+**Diagnosis:** no `.env`, or that variable is unset in it. Five values fail
+closed — `POSTGRES_PASSWORD` and the four `ATLAS_BROKER__*` — and compose
+interpolates the whole file, so this refusal applies to `docker compose up -d
+postgres redis` as much as to `atlas-core`. It is deliberate: no service in this
+repository carries a default credential, and a plausible-looking default broker
+login would let a deployment that cannot trade start up looking like one that
+can.
 
-**Resolution:** `cp .env.example .env` and set `POSTGRES_PASSWORD`.
+**Resolution:** `cp .env.example .env`, set `POSTGRES_PASSWORD`, and uncomment
+and fill in all four `ATLAS_BROKER__*` values. They ship commented out; the file
+explains why.
 
 ### 2. `atlas-core` exits `2`
 
@@ -55,6 +65,12 @@ per restart. Common causes:
 | `logging.format must be 'json' in production` | Console logging under production | Set `ATLAS_LOGGING__FORMAT=json` |
 | `pool_max_size ... must be greater than or equal to` | Pool bounds inverted | Correct the pool settings |
 | `Extra inputs are not permitted` | Typo in a TOML section key | Section models forbid unknown keys; fix the key name |
+| `invalid broker configuration` | The broker section describes no session a terminal could be opened with — `login` is `0` or `server` is empty | Set all four `ATLAS_BROKER__*` values. Since ATLAS-TASK-0023 start-up builds the trading adapter, so this is a start-up failure rather than a later one |
+
+Outside compose the same refusal applies, and there it is the likelier surprise:
+`poetry run atlas-core` reads `.env` from the working directory, so a shell whose
+`.env` lacks the broker values exits `2` even though nothing about the datastores
+changed.
 
 Reproduce outside the container, which is faster:
 

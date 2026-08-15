@@ -79,6 +79,21 @@ jobs:
     timeout-minutes: 20
     needs: quality
 
+    # Throwaway broker configuration, supplied the way a deployment supplies
+    # real values rather than baked into the repository. ATLAS-TASK-0023 made
+    # start-up construct the trading adapter, so a container without these four
+    # exits 2 before it reports anything. They are stated explicitly rather than
+    # leaning on the empty-password and empty-path values MT5Config currently
+    # accepts, so that tightening either one does not silently break this job.
+    #
+    # Compose reads them from this environment; the steps below hand them to
+    # `docker run` by name.
+    env:
+      ATLAS_BROKER__LOGIN: "1000001"
+      ATLAS_BROKER__PASSWORD: ci-throwaway-broker
+      ATLAS_BROKER__SERVER: CI-Throwaway
+      ATLAS_BROKER__TERMINAL_PATH: /opt/atlas/ci/terminal64.exe
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -88,7 +103,9 @@ jobs:
 
       # Compose interpolation fails closed on a missing POSTGRES_PASSWORD, so
       # CI supplies a throwaway value the same way an operator supplies a real
-      # one. Nothing here is a default baked into the repository.
+      # one. Nothing here is a default baked into the repository. It fails
+      # closed on the four broker values too; those come from this job's
+      # environment, which compose reads ahead of `.env`.
       - name: Materialise a CI environment file
         run: |
           cp .env.example .env
@@ -108,10 +125,97 @@ jobs:
           cache-to: type=gha,mode=max
 
       # The entrypoint is a configuration self-check. Running it proves the
-      # image can resolve settings and that its invariants hold.
+      # image can resolve settings, that its invariants hold, and — since
+      # ATLAS-TASK-0023 — that the broker section it was given translates into
+      # an adapter the process can construct.
+      #
+      # The record is parsed rather than merely awaited, because the two things
+      # most worth knowing about it are not visible in an exit code: that it
+      # still carries the eight keys ATLAS-TASK-0001 defined, and that none of
+      # the broker configuration reached it.
       - name: Run the image configuration self-check
         run: |
-          docker run --rm \
+          record=$(docker run --rm \
             -e ATLAS_ENV=development \
             -e ATLAS_POSTGRES__PASSWORD=ci-throwaway \
-            atlas/atlas-core:ci
+            -e ATLAS_BROKER__LOGIN \
+            -e ATLAS_BROKER__PASSWORD \
+            -e ATLAS_BROKER__SERVER \
+            -e ATLAS_BROKER__TERMINAL_PATH \
+            atlas/atlas-core:ci)
+          RECORD="$record" python3 - <<'PY'
+          import json
+          import os
+
+          lines = [line for line in os.environ["RECORD"].splitlines() if line.strip()]
+          if len(lines) != 1:
+              raise SystemExit(f"expected one startup record, got {len(lines)}")
+
+          rendered = lines[0]
+          # Checked before the record is echoed, so a leak is never printed.
+          for name in (
+              "ATLAS_BROKER__LOGIN",
+              "ATLAS_BROKER__PASSWORD",
+              "ATLAS_BROKER__SERVER",
+              "ATLAS_BROKER__TERMINAL_PATH",
+          ):
+              if os.environ[name] in rendered:
+                  raise SystemExit(f"the startup record carried {name}")
+
+          record = json.loads(rendered)
+          if record["event"] != "atlas.core.startup":
+              raise SystemExit(f"unexpected event: {record['event']!r}")
+
+          expected = {
+              "event",
+              "app_name",
+              "environment",
+              "debug",
+              "logging",
+              "postgres",
+              "redis",
+              "duckdb",
+          }
+          if set(record) != expected:
+              raise SystemExit(f"the startup record's keys changed: {sorted(record)}")
+
+          print(rendered)
+          PY
+
+      # ATLAS-TASK-0023 decided that a process without usable broker
+      # configuration does not start. That refusal is worth observing rather
+      # than assuming, and the check above cannot observe it. A password is
+      # supplied and nothing else, so the failure has a credential available to
+      # leak and is shown not to leak it.
+      - name: Run the image self-check without broker configuration
+        run: |
+          status=0
+          output=$(docker run --rm \
+            -e ATLAS_ENV=development \
+            -e ATLAS_POSTGRES__PASSWORD=ci-throwaway \
+            -e ATLAS_BROKER__PASSWORD \
+            atlas/atlas-core:ci 2>&1) || status=$?
+          OUTPUT="$output" STATUS="$status" python3 - <<'PY'
+          import json
+          import os
+
+          output = os.environ["OUTPUT"]
+          if os.environ["ATLAS_BROKER__PASSWORD"] in output:
+              raise SystemExit("the failing start-up leaked the broker password")
+
+          status = int(os.environ["STATUS"])
+          if status != 2:
+              raise SystemExit(f"expected exit 2, got {status}: {output}")
+
+          # stderr was merged into stdout, so one line also proves the record
+          # ATLAS-TASK-0001 writes to stdout was never reached.
+          lines = [line for line in output.splitlines() if line.strip()]
+          if len(lines) != 1:
+              raise SystemExit(f"expected one failure record, got {len(lines)}")
+
+          record = json.loads(lines[0])
+          if record["event"] != "atlas.core.startup_failed":
+              raise SystemExit(f"unexpected event: {record['event']!r}")
+
+          print(lines[0])
+          PY

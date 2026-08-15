@@ -44,7 +44,11 @@ Two constraints worth knowing before editing it:
 | `redis` | `unless-stopped` | `redis-cli ping` |
 | `atlas-core` | `no` | none |
 
-`atlas-core` deviates deliberately. It currently performs a configuration
+`atlas-core` deviates deliberately. Configured, it performs a configuration
 self-check and exits `0`; a restart policy would turn a clean exit into a crash
 loop, and a health check has nothing to poll. Both change when the service
 acquires a run loop.
+
+Since ATLAS-TASK-0023 that self-check includes building the trading adapter, so
+the compose service requires the four `ATLAS_BROKER__*` values and fails closed
+on a missing one rather than defaulting. A container without them exits `2`.
