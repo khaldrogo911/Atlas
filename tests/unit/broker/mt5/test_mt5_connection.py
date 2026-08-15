@@ -17,9 +17,10 @@ import ast
 import inspect
 import subprocess
 import sys
+import textwrap
 from datetime import timedelta
-from pathlib import Path
-from typing import TYPE_CHECKING, Final
+from pathlib import Path, PurePosixPath
+from typing import TYPE_CHECKING, Final, NoReturn
 
 import pytest
 from pydantic import SecretStr, ValidationError
@@ -67,11 +68,114 @@ from atlas.broker.mt5.constants import (
 from tests.unit.broker.mt5.conftest import SERVER_OFFSET, FakeTerminal
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
 
 pytestmark = pytest.mark.unit
 
 VENDOR_MODULE: Final = "MetaTrader5"
+
+#: Names whose appearance in ``MT5Config``'s source would mean configuration
+#: validation had grown a filesystem probe. ADR-0016 makes the absence of I/O a
+#: rule of the record rather than a side effect of the fields it declines to
+#: check, so it is asserted rather than assumed.
+FILESYSTEM_CALLS: Final = frozenset(
+    {
+        "absolute",
+        "access",
+        "chmod",
+        "exists",
+        "expanduser",
+        "glob",
+        "is_dir",
+        "is_file",
+        "isfile",
+        "iterdir",
+        "lstat",
+        "open",
+        "owner",
+        "realpath",
+        "resolve",
+        "samefile",
+        "stat",
+        "touch",
+    }
+)
+
+#: Every entry point ``pathlib`` reaches the filesystem through. Both layers are
+#: patched on purpose: ``os.stat`` alone is not enough, because CPython 3.13+
+#: routes ``Path.exists`` through a C fast path in ``os.path`` that never calls
+#: it. The control below is what established that, and is what will establish it
+#: again if the plumbing moves.
+FILESYSTEM_ENTRY_POINTS: Final = (
+    "builtins.open",
+    "io.open",
+    "os.access",
+    "os.getcwd",
+    "os.lstat",
+    "os.path.abspath",
+    "os.path.exists",
+    "os.path.isdir",
+    "os.path.isfile",
+    "os.path.lexists",
+    "os.path.realpath",
+    "os.stat",
+)
+
+#: The operations the patch set must be shown to intercept. Naming them, rather
+#: than trusting one probe, is what keeps the invariant honest across platforms:
+#: a Python that reroutes any of these fails the control instead of quietly
+#: making the invariant vacuous.
+FILESYSTEM_OPERATIONS: Final = (
+    ("exists", lambda path: path.exists()),
+    ("is_file", lambda path: path.is_file()),
+    ("is_dir", lambda path: path.is_dir()),
+    ("stat", lambda path: path.stat()),
+    ("resolve", lambda path: path.resolve()),
+    ("absolute", lambda path: path.absolute()),
+    ("open", lambda path: path.open()),
+)
+
+
+class FilesystemTouchedError(Exception):
+    """Raised by the stand-ins below, so a probe cannot be confused with a bug."""
+
+
+def refuse_filesystem(patched: pytest.MonkeyPatch) -> None:
+    """Make every filesystem entry point raise for as long as ``patched`` lives.
+
+    Args:
+        patched: A monkeypatch context, so that the patching is scoped to the
+            block under test rather than to the whole test. ``pytest`` reads
+            files while rewriting assertions and reporting failures, and a
+            broadly scoped patch turns a clean failure into a confusing one.
+    """
+
+    def refuse(*_args: object, **_kwargs: object) -> NoReturn:
+        message = "configuration validation touched the filesystem"
+        raise FilesystemTouchedError(message)
+
+    for target in FILESYSTEM_ENTRY_POINTS:
+        patched.setattr(target, refuse)
+
+
+def called_names(source: str) -> set[str]:
+    """Return every function and method name called anywhere in ``source``.
+
+    Args:
+        source: Python source text.
+
+    Returns:
+        The bare names and attribute names appearing in call position.
+    """
+    called: set[str] = set()
+    for node in ast.walk(ast.parse(textwrap.dedent(source))):
+        if not isinstance(node, ast.Call):
+            continue
+        if isinstance(node.func, ast.Attribute):
+            called.add(node.func.attr)
+        elif isinstance(node.func, ast.Name):
+            called.add(node.func.id)
+    return called
 
 
 def repository_root() -> Path:
@@ -184,6 +288,191 @@ class TestConfig:
                 server="",
                 terminal_path=Path("terminal64.exe"),
             )
+
+
+class TestTheNotConfiguredValuesAreRefused:
+    """ADR-0016's two invariants, beside the two ``TestConfig`` already covers.
+
+    All four values are now the same kind of thing: a session cannot be opened
+    from any of them, on any host, in any environment. What is *not* checked
+    matters as much, and has its own class below.
+    """
+
+    @pytest.mark.parametrize("password", [SecretStr(""), ""])
+    def test_an_empty_password_is_rejected(self, password: SecretStr | str) -> None:
+        # Both spellings, because the bare string is what an environment
+        # actually delivers: ``ATLAS_BROKER__PASSWORD=`` arrives as ``""`` and
+        # is coerced. Validated from a mapping for the same reason — that is the
+        # route settings take, and it is the one that has to refuse.
+        #
+        # Matched on the field rather than on the wording. "at least 1 item
+        # after validation" is Pydantic's phrasing for a length constraint on a
+        # non-str type; pinning it would report a dependency bump as a broker
+        # configuration defect.
+        with pytest.raises(ValidationError) as raised:
+            MT5Config.model_validate(
+                {
+                    "login": 1,
+                    "password": password,
+                    "server": "Example-Demo",
+                    "terminal_path": Path("terminal64.exe"),
+                }
+            )
+
+        assert [error["loc"] for error in raised.value.errors()] == [("password",)]
+
+    @pytest.mark.parametrize("supplied", [".", "", "./"])
+    def test_the_unconfigured_terminal_path_is_rejected(self, supplied: str) -> None:
+        # Every spelling of the sentinel, because ``Path`` collapses all of them
+        # to ``Path()`` — which is ``Path(".")``. Parameterising is what proves
+        # the rule compares the normalised path rather than the string it
+        # arrived as.
+        assert Path(supplied) == Path()
+
+        with pytest.raises(ValidationError) as raised:
+            MT5Config(
+                login=1,
+                password=SecretStr("x"),
+                server="Example-Demo",
+                terminal_path=Path(supplied),
+            )
+
+        assert [error["loc"] for error in raised.value.errors()] == [("terminal_path",)]
+
+    def test_a_supplied_password_is_accepted(self) -> None:
+        config = MT5Config(
+            login=1,
+            password=SecretStr("x"),
+            server="Example-Demo",
+            terminal_path=Path("terminal64.exe"),
+        )
+
+        assert config.password.get_secret_value() == "x"
+
+    def test_a_password_of_one_space_is_accepted(self) -> None:
+        # The rule is "not configured", not "strong enough". A space is a value
+        # somebody supplied, and this is the test that fails if a strength or
+        # format policy is ever added without a decision behind it.
+        config = MT5Config(
+            login=1,
+            password=SecretStr(" "),
+            server="Example-Demo",
+            terminal_path=Path("terminal64.exe"),
+        )
+
+        assert config.password.get_secret_value() == " "
+
+    def test_a_relative_terminal_path_that_is_not_the_sentinel_is_accepted(self) -> None:
+        # The boundary of the rule. Widening it to "any relative path" or "any
+        # path without a filename" would reject this.
+        config = MT5Config(
+            login=1,
+            password=SecretStr("x"),
+            server="Example-Demo",
+            terminal_path=Path(".."),
+        )
+
+        assert config.terminal_path == Path("..")
+
+
+class TestWhatConfigurationValidationDeliberatelyDoesNotCheck:
+    """The more important half of ADR-0016, and the easier half to lose.
+
+    Absoluteness, existence, executability and accessibility are each refused as
+    invariants, because each makes configuration validity a property of the
+    machine doing the validating. These tests fail if one arrives later.
+    """
+
+    def test_a_windows_terminal_path_is_accepted_under_posix_semantics(self) -> None:
+        windows_style = "C:/Program Files/MetaTrader 5/terminal64.exe"
+        # The point of the case, pinned so it holds on either host: under POSIX
+        # this path is *relative*. ``atlas-core`` ships in a Linux image, so an
+        # absoluteness invariant would reject correct production configuration
+        # inside the container this repository builds.
+        assert not PurePosixPath(windows_style).is_absolute()
+
+        config = MT5Config(
+            login=1,
+            password=SecretStr("x"),
+            server="Example-Demo",
+            terminal_path=Path(windows_style),
+        )
+
+        assert config.terminal_path == Path(windows_style)
+
+    def test_a_terminal_path_that_does_not_exist_is_accepted_and_not_normalised(self) -> None:
+        missing = Path("/atlas-no-such-terminal-9f2c1a/terminal64.exe")
+        assert not missing.exists()
+
+        config = MT5Config(
+            login=1,
+            password=SecretStr("x"),
+            server="Example-Demo",
+            terminal_path=missing,
+        )
+
+        # Equal to what was passed, so the value was neither rejected nor
+        # resolved, expanded or otherwise rewritten on the way in.
+        assert config.terminal_path == missing
+
+    def test_validation_performs_no_filesystem_io(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Construct a valid configuration with the filesystem made to raise.
+
+        The path below does not exist, so anything that looked would both fail
+        and be caught here.
+        """
+        with monkeypatch.context() as patched:
+            refuse_filesystem(patched)
+
+            config = MT5Config(
+                login=1,
+                password=SecretStr("x"),
+                server="Example-Demo",
+                terminal_path=Path("/atlas-no-such-terminal-9f2c1a/terminal64.exe"),
+            )
+
+        assert config.terminal_path == Path("/atlas-no-such-terminal-9f2c1a/terminal64.exe")
+
+    @pytest.mark.parametrize(
+        ("name", "operation"), FILESYSTEM_OPERATIONS, ids=[n for n, _ in FILESYSTEM_OPERATIONS]
+    )
+    def test_the_filesystem_patch_can_actually_intercept(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        name: str,
+        operation: Callable[[Path], object],
+    ) -> None:
+        """The control, and the reason the test above is evidence rather than decoration.
+
+        It has already earned its place once: the first patch set here covered
+        ``os.stat`` and missed ``Path.exists`` entirely, because CPython routes
+        it through a C fast path on this interpreter. The invariant test passed
+        anyway, against a patch it never reached.
+        """
+        assert name
+        with monkeypatch.context() as patched:
+            refuse_filesystem(patched)
+
+            with pytest.raises(FilesystemTouchedError):
+                operation(Path("/atlas-no-such-terminal-9f2c1a/terminal64.exe"))
+
+    def test_no_filesystem_call_appears_in_the_source_of_the_model(self) -> None:
+        # The static half. The runtime check above covers the path actually
+        # taken; this one covers a branch a future validator might add and no
+        # test happens to reach.
+        offenders = called_names(inspect.getsource(MT5Config)) & FILESYSTEM_CALLS
+
+        assert offenders == set()
+
+    def test_the_source_scanner_can_actually_find_a_filesystem_call(self) -> None:
+        """Prove the scanner can find what it is looking for.
+
+        A scanner that reports nothing on everything would pass the test above
+        forever.
+        """
+        guilty = "def check(path):\n    return path.exists()\n"
+
+        assert called_names(guilty) & FILESYSTEM_CALLS == {"exists"}
 
 
 class TestConnecting:

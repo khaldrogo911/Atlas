@@ -19,14 +19,19 @@ import subprocess
 import sys
 from datetime import timedelta
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
+from atlas.apps.core import composition
 from atlas.apps.core.broker_ownership import BrokerOwner
 from atlas.apps.core.composition import build_broker_owner
 from atlas.broker import BrokerNotConnectedError
 from atlas.broker.mt5 import MT5BrokerAdapter, MT5Config
 from atlas.config import ConfigurationError, load_settings
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 pytestmark = pytest.mark.unit
 
@@ -74,6 +79,24 @@ def _config_of(owner: BrokerOwner) -> MT5Config:
     adapter = owner._adapter
     assert isinstance(adapter, MT5BrokerAdapter)
     return adapter._session._config
+
+
+def _recording(name: str, log: list[str]) -> Callable[..., object]:
+    """Return a stand-in for a constructor that records having been called.
+
+    Args:
+        name: What to append to the log when called.
+        log: Shared list the caller inspects afterwards.
+
+    Returns:
+        A callable accepting anything and returning a placeholder.
+    """
+
+    def record(*_args: object, **_kwargs: object) -> object:
+        log.append(name)
+        return object()
+
+    return record
 
 
 def _probe(body: str) -> subprocess.CompletedProcess[str]:
@@ -148,6 +171,124 @@ class TestTheTranslationRefusesWhatCannotOpenASession:
         reported = str(raised.value)
         assert SENTINEL not in reported
         assert "SecretStr(" not in reported
+
+    def test_an_unset_password_is_refused_and_the_field_is_named(
+        self, isolated_env: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        assert isolated_env.exists()
+        monkeypatch.setenv("ATLAS_BROKER__LOGIN", LOGIN)
+        monkeypatch.setenv("ATLAS_BROKER__SERVER", SERVER)
+        monkeypatch.setenv("ATLAS_BROKER__TERMINAL_PATH", TERMINAL_PATH)
+
+        with pytest.raises(ConfigurationError) as raised:
+            build_broker_owner(load_settings())
+
+        reported = str(raised.value)
+        assert "broker" in reported
+        assert "password" in reported
+
+    def test_an_unset_terminal_path_is_refused_and_the_field_is_named(
+        self, isolated_env: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        assert isolated_env.exists()
+        monkeypatch.setenv("ATLAS_BROKER__LOGIN", LOGIN)
+        monkeypatch.setenv("ATLAS_BROKER__PASSWORD", SENTINEL)
+        monkeypatch.setenv("ATLAS_BROKER__SERVER", SERVER)
+
+        with pytest.raises(ConfigurationError) as raised:
+            build_broker_owner(load_settings())
+
+        reported = str(raised.value)
+        assert "broker" in reported
+        assert "terminal_path" in reported
+
+    def test_a_refusal_of_another_field_still_carries_no_credential(
+        self, isolated_env: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The harder credential case: a real password is present and valid.
+
+        ``test_the_refusal_carries_no_credential`` above fails the password
+        itself. Here the password is the one value that would pass, so the error
+        Pydantic renders has a live secret in the model it is describing.
+        """
+        assert isolated_env.exists()
+        monkeypatch.setenv("ATLAS_BROKER__LOGIN", LOGIN)
+        monkeypatch.setenv("ATLAS_BROKER__PASSWORD", SENTINEL)
+        monkeypatch.setenv("ATLAS_BROKER__SERVER", SERVER)
+
+        with pytest.raises(ConfigurationError) as raised:
+            build_broker_owner(load_settings())
+
+        reported = str(raised.value)
+        assert "terminal_path" in reported
+        assert SENTINEL not in reported
+        assert "SecretStr(" not in reported
+
+    def test_nothing_is_constructed_when_the_configuration_is_refused(
+        self, isolated_env: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Translation precedes construction, so a refusal builds neither object."""
+        assert isolated_env.exists()
+        monkeypatch.setenv("ATLAS_BROKER__LOGIN", LOGIN)
+        monkeypatch.setenv("ATLAS_BROKER__SERVER", SERVER)
+        monkeypatch.setenv("ATLAS_BROKER__TERMINAL_PATH", TERMINAL_PATH)
+        built: list[str] = []
+        monkeypatch.setattr(composition, "MT5BrokerAdapter", _recording("adapter", built))
+        monkeypatch.setattr(composition, "BrokerOwner", _recording("owner", built))
+
+        with pytest.raises(ConfigurationError):
+            build_broker_owner(load_settings())
+
+        assert built == []
+
+    def test_the_construction_probe_records_a_build_that_does_happen(
+        self, broker_env: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Prove the construction probe records a build that does happen.
+
+        Patches that are never reached would pass the test above whatever
+        ``build_broker_owner`` did with them.
+        """
+        assert broker_env.exists()
+        built: list[str] = []
+        monkeypatch.setattr(composition, "MT5BrokerAdapter", _recording("adapter", built))
+        monkeypatch.setattr(composition, "BrokerOwner", _recording("owner", built))
+
+        build_broker_owner(load_settings())
+
+        assert built == ["adapter", "owner"]
+
+    def test_a_refused_configuration_opens_no_session(
+        self, isolated_env: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Run in a fresh interpreter, as the vendor checks in this file are.
+
+        Exit 4 means the configuration was accepted, which would make the rest
+        of the assertion meaningless. The control for the probe mechanism itself
+        is ``test_the_vendor_probe_can_actually_report_an_import`` below.
+        """
+        assert isolated_env.exists()
+        monkeypatch.setenv("ATLAS_BROKER__LOGIN", LOGIN)
+        monkeypatch.setenv("ATLAS_BROKER__SERVER", SERVER)
+        monkeypatch.setenv("ATLAS_BROKER__TERMINAL_PATH", TERMINAL_PATH)
+        probe = (
+            "import sys\n"
+            "from atlas.apps.core.composition import build_broker_owner\n"
+            "from atlas.config import ConfigurationError, load_settings\n"
+            "try:\n"
+            "    build_broker_owner(load_settings())\n"
+            "except ConfigurationError:\n"
+            "    pass\n"
+            "else:\n"
+            "    sys.exit(4)\n"
+            f"sys.exit({VENDOR_PRESENT} if {VENDOR_MODULE!r} in sys.modules else 0)\n"
+        )
+
+        result = _probe(probe)
+
+        assert (
+            result.returncode == 0
+        ), f"a refused configuration reached the vendor: {result.stderr}"
 
 
 class TestTheOwnerIsBuiltFromTheSettings:

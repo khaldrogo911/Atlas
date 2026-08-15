@@ -187,6 +187,71 @@ class TestStartUpNeedsABrokerSectionASessionCouldBeOpenedFrom:
         assert BROKER_SENTINEL not in captured.out
         assert BROKER_SENTINEL not in captured.err
 
+    def test_a_process_without_a_password_fails_before_it_writes_a_record(
+        self,
+        isolated_env: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        assert isolated_env.exists()
+        monkeypatch.setenv("ATLAS_BROKER__LOGIN", BROKER_LOGIN)
+        monkeypatch.setenv("ATLAS_BROKER__SERVER", BROKER_SERVER)
+        monkeypatch.setenv("ATLAS_BROKER__TERMINAL_PATH", BROKER_TERMINAL_PATH)
+
+        exit_code = main()
+
+        captured = capsys.readouterr()
+        assert exit_code == EXIT_CONFIG_ERROR
+        assert captured.out == ""
+        failure = json.loads(captured.err.strip())
+        assert failure["event"] == "atlas.core.startup_failed"
+        assert "broker" in failure["error"]
+        assert "password" in failure["error"]
+
+    def test_a_process_without_a_terminal_path_fails_before_it_writes_a_record(
+        self,
+        isolated_env: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        assert isolated_env.exists()
+        monkeypatch.setenv("ATLAS_BROKER__LOGIN", BROKER_LOGIN)
+        monkeypatch.setenv("ATLAS_BROKER__PASSWORD", BROKER_SENTINEL)
+        monkeypatch.setenv("ATLAS_BROKER__SERVER", BROKER_SERVER)
+
+        exit_code = main()
+
+        captured = capsys.readouterr()
+        assert exit_code == EXIT_CONFIG_ERROR
+        assert captured.out == ""
+        failure = json.loads(captured.err.strip())
+        assert failure["event"] == "atlas.core.startup_failed"
+        assert "broker" in failure["error"]
+        assert "terminal_path" in failure["error"]
+
+    def test_a_failure_beside_a_valid_password_leaks_no_credential(
+        self,
+        isolated_env: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Report a different field while a real secret is in hand.
+
+        The password here is the one value that would pass, so the rejected
+        model holds a live secret while another field is being reported.
+        """
+        assert isolated_env.exists()
+        monkeypatch.setenv("ATLAS_BROKER__LOGIN", BROKER_LOGIN)
+        monkeypatch.setenv("ATLAS_BROKER__PASSWORD", BROKER_SENTINEL)
+        monkeypatch.setenv("ATLAS_BROKER__SERVER", BROKER_SERVER)
+
+        assert main() == EXIT_CONFIG_ERROR
+
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert BROKER_SENTINEL not in captured.err
+        assert "SecretStr(" not in captured.err
+
     def test_a_configured_broker_adds_nothing_to_the_startup_record(
         self, configured_broker: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:

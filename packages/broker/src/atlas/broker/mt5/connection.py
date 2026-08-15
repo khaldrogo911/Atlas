@@ -49,7 +49,7 @@ from datetime import timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Final, Protocol, cast
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
 from atlas.broker.exceptions import (
     BrokerAuthenticationError,
@@ -345,7 +345,9 @@ class MT5Config(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     login: int = Field(gt=0, description="Trading account number.")
-    password: SecretStr = Field(description="Account password, held so it cannot be logged.")
+    password: SecretStr = Field(
+        min_length=1, description="Account password, held so it cannot be logged."
+    )
     server: str = Field(min_length=1, description="Trade server name, such as 'ICMarkets-Demo'.")
     terminal_path: Path = Field(
         description=(
@@ -369,6 +371,42 @@ class MT5Config(BaseModel):
             "discovered and must be configured."
         ),
     )
+
+    @field_validator("terminal_path")
+    @classmethod
+    def _reject_the_unconfigured_path(cls, value: Path) -> Path:
+        """Refuse the sentinel that means nobody supplied a terminal path.
+
+        ``BrokerSettings.terminal_path`` defaults to ``Path()``, which is ``.``
+        — a directory, and the value a deployment presents when it set nothing.
+        It is refused on the same grounds as ``server=""``: the absence of a
+        value rather than a value.
+
+        Nothing else about the path is checked. That it is absolute, that it
+        exists, that it can be executed and that this host can reach it are each
+        deliberately not invariants, because each would make configuration
+        validity a property of the machine doing the validating rather than of
+        the configuration — and the shipped container has no Windows terminal to
+        find. No filesystem call is made here, which is a rule of ADR-0016 and
+        not merely a consequence of the properties it declines to check. The
+        path's real validation is the terminal starting, and that belongs to
+        ``connect()``.
+
+        Args:
+            value: The path the deployment supplied.
+
+        Returns:
+            The path exactly as given, neither resolved nor normalised.
+
+        Raises:
+            ValueError: If the path is the not-configured sentinel.
+        """
+        # ``Path()`` is ``Path(".")``; it is spelled the short way because PTH201
+        # rejects the other, and it is the literal default the settings layer holds.
+        if value == Path():
+            msg = "terminal_path is not configured"
+            raise ValueError(msg)
+        return value
 
     @property
     def clock(self) -> ServerClock:
