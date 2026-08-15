@@ -22,6 +22,7 @@ the history of the system's reasoning stays intact.
 | [0011](0011-execution-builds-the-request-another-layer-owns-the-port.md) | Execution builds the request; another layer owns the port | Accepted |
 | [0012](0012-risk-is-handed-its-state-and-reads-its-own-limits.md) | Risk is handed its state and reads its own limits | Accepted |
 | [0013](0013-the-application-owns-the-adapter.md) | The application owns the adapter; the port stays in the broker package | Accepted |
+| [0014](0014-broker-settings-are-restated-not-imported.md) | Broker settings are restated in the configuration package, not imported | Accepted |
 
 ## Writing one
 
