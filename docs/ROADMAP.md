@@ -33,10 +33,11 @@ and in package documentation. This file is where they resolve to a status.
 | ATLAS-TASK-0019 † | Living-document correction after the first risk control | ✅ Complete | `394df7debe6c77cbcf4e79cfe2cfc0ef798c1d8a` |
 | ATLAS-TASK-0020 † | Implement application ownership of `BrokerAdapter` | ✅ Complete | `55fcbd6161d49c986b0033f37493195c3226493e` |
 | ATLAS-TASK-0021 † | Living-document correction after application ownership of `BrokerAdapter` | ✅ Complete | `d7a68cb4aa6aa1a3465e1305e2b04b432adf00da` |
+| ATLAS-TASK-0022 † | The broker configuration surface: `BrokerSettings` | ✅ Complete | `d0f5b709979a3b634c859b31c77fd5dc41c6ab7b` |
 
 † **Newly specified, not recovered.** The unmarked rows are evidenced by the
 repository record: the task existed, and the commit it cites is the work.
-ATLAS-TASK-0011 through ATLAS-TASK-0021 were each specified and authorised as
+ATLAS-TASK-0011 through ATLAS-TASK-0022 were each specified and authorised as
 new work during the task itself. Their presence in this table is not evidence
 that any was previously planned, and none may be described as recovered project
 history or as previously completed.
@@ -79,13 +80,24 @@ port. ATLAS-TASK-0020's row was written once that commit reached `main`, the way
 every row above it was. ADR-0013 has no row there and will not acquire one —
 that table records tasks, and a decision is not a task.
 
+**ADR-0014 is accepted, and ATLAS-TASK-0022 is implemented.** ADR-0014 —
+`docs/adr/0014-broker-settings-are-restated-not-imported.md`, indexed in
+`docs/adr/README.md` — decides that the values a trading session needs are
+restated in `atlas.config`'s own primitives rather than imported from
+`atlas.broker`, so that the configuration package does not import a feature
+package in order to learn its own shape. `docs/tasks/ATLAS-TASK-0022.md` is the
+implementation specification for that decision, and `d0f5b709` is the commit
+that implements it. As with ADR-0013, ADR-0014 has no row in that table and will
+not acquire one — a decision is not a task.
+
 ATLAS-TASK-0020 does not decide the broker or venue configuration surface.
 ADR-0013 declined to, and the specification names the absence of that surface in
 `AtlasSettings` as the exact dependency blocking construction of a live adapter,
 rather than inventing one to work around it. ATLAS-TASK-0021 does not decide it
 either: that task is a documentation correction, and the blocker is exactly
-where ADR-0013 left it. Nothing beyond ATLAS-TASK-0021 is defined, and this file
-declares no ATLAS-TASK-0022, no ADR-0014 and no work after them. The tasks above
+where ADR-0013 left it. ADR-0014 decided it and ATLAS-TASK-0022 built it, which
+is the paragraph above. Nothing beyond ATLAS-TASK-0022 is defined, and this file
+declares no ATLAS-TASK-0023, no ADR-0015 and no work after them. The tasks above
 are the ones the repository itself declares; this file does not speculate past
 them.
 
@@ -93,6 +105,15 @@ ATLAS-TASK-0021 is the correction the ATLAS-TASK-0020 entry below calls for and
 declines to number. That entry closes "this file names no number for it", which
 was true when written and is answered by the row above; the entry is left as
 written, as ATLAS-TASK-0019's was.
+
+ATLAS-TASK-0022 supplies the surface that same entry names as the dependency
+blocking a live adapter. That entry says `MT5BrokerAdapter` "cannot be
+constructed at all, because `AtlasSettings` carries no broker or venue section
+from which an `MT5Config` could be built"; the section now exists, and what the
+entry goes on to describe as the remaining work — "when the configuration
+decision is taken, the work it leaves is one call site" — is where this task
+leaves it. That entry is left as written, as ATLAS-TASK-0019's and
+ATLAS-TASK-0020's were.
 
 ## Completed
 
@@ -1267,6 +1288,130 @@ there is no gap of the kind recorded at ‡. Locally only the test suite was run
 because the change is documentation and touches no Python: 3589 passed, the
 baseline count, unchanged, which is the only thing it can be evidence of here.
 Ruff, Black and MyPy ran in CI's Quality Gate rather than on this machine.
+
+### ATLAS-TASK-0022 — the broker configuration surface
+
+Newly specified rather than recovered from the repository record — see the note
+marked † under the status table.
+
+`AtlasSettings` has a sixth section. `BrokerSettings` holds the four values a
+trading session cannot be established without — `login: int`, `password:
+SecretStr`, `server: str` and `terminal_path: Path` — and the ATLAS-TASK-0020
+entry above names the absence of exactly that section as the dependency blocking
+construction of a live adapter. ADR-0014 decided how it is represented; this
+task built it and did nothing else. Five files, 357 insertions against four
+deletions, and all four deletions sit inside one import block in a test.
+
+**The four values are restated, not imported.** `MT5Config` already declares
+them in `packages/broker`, and importing it would make the configuration package
+depend on a feature package in order to learn its own shape. ADR-0014 chose the
+duplication instead and recorded its cost — two declarations of overlapping
+requirements can drift — because independence is what restating buys. The
+section is written in `int`, `SecretStr`, `str` and `Path`;
+`packages/config/src` contains no occurrence of `MT5Config`, `mt5`, `MetaTrader`
+or `BrokerAdapter` in any casing, and no import of `atlas.broker` in any form,
+a `TYPE_CHECKING` guard included. Twelve parametrised tests assert both across
+every module in the package, and importing `atlas.config` loads no `atlas`
+package other than itself.
+
+**The defaults permit nothing, and there is no start-up invariant.** A login of
+`0` and an empty server name are the not-configured values, and no session can
+be opened from either. Absence is not permission here for the same reason it is
+not in `RiskSettings` — but the refusal lands where a connection is assembled
+rather than at start-up, because nothing assembles one yet. An invariant would
+refuse every production process for want of configuration nothing reads, so
+`_enforce_production_invariants` gained no broker clause and a `production`
+process still starts with the section entirely unset. The test that says so is
+what fails if an invariant ever arrives by accident.
+
+**The section names types, not a venue.** No `venue`, `provider`, `broker_type`,
+`kind`, `enabled` or `type` field exists, and the class docstring names no venue
+or product — asserted rather than merely intended, by a test that scans the
+docstring against seven venue names and the model fields against six
+discriminator names. `timeout_ms`, `portable` and `server_utc_offset` are
+deliberately absent: each has a defensible default where it is consumed, and
+nothing here reads them. The last of the three is a real gap, named in advance
+by the specification's §21.3 — a deployment against a server that does not
+publish UTC cannot be corrected through this section as specified.
+
+**Configuration takes the ordinary route and gains no new one.**
+`ATLAS_BROKER__LOGIN`, `ATLAS_BROKER__PASSWORD`, `ATLAS_BROKER__SERVER` and
+`ATLAS_BROKER__TERMINAL_PATH` resolve through the machinery that was already
+there. `settings_customise_sources` is byte-identical, so the order is still
+constructor, environment, `.env`, environment TOML, default TOML, field
+defaults; no source was added and no second precedence order exists. No layer
+under `config/` declares a `[broker]` block, all four layers are byte-identical,
+and the password may never be committed to one: it is a `SecretStr` supplied
+through the process environment, absent from `repr`, `str`, `model_dump()` and
+`model_dump_json()`, with no `safe_*` accessor added to unwrap it.
+
+**The startup record gained no key.** `__main__.py` is byte-identical.
+`build_startup_record` still emits eight keys and `broker` is not among them —
+`risk` is already a section it omits, no rule anywhere says which sections
+appear, and inventing one here would put a live-trading credential a masking bug
+away from a log line. One added test sets a broker login, password and server,
+then asserts the section key is absent and that neither the login nor the
+password reaches the rendered line.
+
+**The risk boundary was not touched and did not need to be.**
+`tests/unit/risk/test_risk_boundary.py` is byte-identical. A risk module
+reaching the new credential would have to write
+`get_settings().broker.password`, whose attribute names include `password` —
+already in `CREDENTIAL_SYMBOLS`, so the credential was covered before this task
+existed. Adding `"broker"` to that tuple would have been a broadening, and a
+dangerous one: `_referenced_names` also records the last segment of an
+`ast.alias`, so any module writing `import atlas.broker` would register the
+name, and `atlas.risk` is permitted to import `atlas.broker` and does. The
+denylist entry could therefore have failed a module touching no credential at
+all.
+
+**What this task does not do is most of what it enables.** No adapter is
+constructed or selected, no branch on `environment` picks an implementation,
+there is no composition root, nothing is built at process start, `BrokerOwner`
+is neither modified nor instantiated, and the `BrokerSettings` to `MT5Config`
+translation is described in the specification's §15 and implemented by nobody.
+`packages/broker`, `packages/risk`, `packages/execution` and `apps/` are
+untouched — not one file, not one line. ADR-0012's revisit condition, "when a
+single wiring point exists and can be pointed at", remains unsatisfied:
+supplying the values a wiring point would read is not building one.
+
+25 tests were added and the suite went from 3589 to 3614. The baseline was
+re-derived rather than assumed — deselecting exactly the four new test classes
+and the one new entrypoint test collects 3589 — and an AST comparison of both
+changed test files, decoded as UTF-8 on both sides, reports no pre-existing test
+removed, renamed or modified. The contract suite is still 191 and the four
+boundary tests still 757, both unchanged, with no `PERMITTED_ATLAS_PACKAGES`
+tuple widened. Locally: Ruff, Black and MyPy `--strict` clean across 102 source
+files with no `# type: ignore` added, all fourteen pre-commit hooks passing, and
+`git diff --check` clean.
+
+Three living documents went stale when this commit landed, and none of them is
+corrected here. `tests/unit/risk/test_risk_boundary.py:150-159` derives
+`CREDENTIAL_SYMBOLS` from "the two sections that lead anywhere
+credential-bearing", and there are now three — the comment is stale while the
+tuple it describes is still correct. ADR-0011 `:101-103` says there is no broker
+or venue surface anywhere in the settings model, which is now false and which
+the immutability rule leaves exactly where it is.
+`docs/architecture/overview.md` describes five configuration sections where
+there are six. All three were named in advance by the specification's §21.3,
+and correcting them is a separate living-document task, per the precedent of
+ATLAS-TASK-0015, ATLAS-TASK-0016, ATLAS-TASK-0019 and ATLAS-TASK-0021; this
+file names no number for it.
+
+This task has three commits and reached `main` by direct commit rather than
+through a pull request, so there is no merge commit for the row above to cite.
+`9bd447ab72087010ea6accf254e33f232fc3134a` accepted ADR-0014 and indexed it;
+`e9596ac3e77ade6357ea54d9174f7fafaa8132d4` added the specification; and
+`d0f5b709979a3b634c859b31c77fd5dc41c6ab7b` is the implementation, which the row
+above cites. No commit was amended. Unlike ATLAS-TASK-0020 and ATLAS-TASK-0021,
+this entry is written before the push rather than after it: `origin/main` is
+`aaa959dd` as this is written, `main` is three commits ahead of it, and no CI
+run exists against `d0f5b709`. The row above therefore records a task whose
+gates have passed locally and not yet in CI. That is a gap against the
+definition of **Complete** at the top of this file, of the kind ‡ records for
+ATLAS-TASK-0010 and of the kind ATLAS-TASK-0019's entry recorded before its own
+push, and like that one it is closed by the push rather than by a correction
+here.
 
 ## Known documentation debt
 
