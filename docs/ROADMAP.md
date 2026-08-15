@@ -34,10 +34,11 @@ and in package documentation. This file is where they resolve to a status.
 | ATLAS-TASK-0020 † | Implement application ownership of `BrokerAdapter` | ✅ Complete | `55fcbd6161d49c986b0033f37493195c3226493e` |
 | ATLAS-TASK-0021 † | Living-document correction after application ownership of `BrokerAdapter` | ✅ Complete | `d7a68cb4aa6aa1a3465e1305e2b04b432adf00da` |
 | ATLAS-TASK-0022 † | The broker configuration surface: `BrokerSettings` | ✅ Complete | `d0f5b709979a3b634c859b31c77fd5dc41c6ab7b` |
+| ATLAS-TASK-0023 † | Construct the broker adapter at startup | ✅ Complete | `6f5eff81361e904b746a37a8c975683b138972e7` ¶ |
 
 † **Newly specified, not recovered.** The unmarked rows are evidenced by the
 repository record: the task existed, and the commit it cites is the work.
-ATLAS-TASK-0011 through ATLAS-TASK-0022 were each specified and authorised as
+ATLAS-TASK-0011 through ATLAS-TASK-0023 were each specified and authorised as
 new work during the task itself. Their presence in this table is not evidence
 that any was previously planned, and none may be described as recovered project
 history or as previously completed.
@@ -63,6 +64,23 @@ after the merge, which is how ATLAS-TASK-0012's row was filled in too, by
 `b023f8b`. `19afcf40` is the implementation commit and holds the work; the
 merge commit is `1d964186`, and as with `2e567aa5` above it is not what the
 row cites.
+
+¶ **One gate failed here, and a later task closed it.**
+`6f5eff81361e904b746a37a8c975683b138972e7` is where ATLAS-TASK-0023's work lives
+and it is on `main`, which is why it is the commit cited. CI run 43 — id
+`31886471062`, head `6f5eff81361e904b746a37a8c975683b138972e7` — passed the
+Quality Gate in full, every step of it, and failed Container & Compose at
+exactly one step, "Run the image configuration self-check". `docker compose
+config` and the image build had both already succeeded; the self-check ran the
+image with no broker configuration, and start-up had become the place that
+refuses without one. This is not the same kind of gap as ‡ above: the
+application code was correct, and what had not caught up with it was the
+repository's deployment surface — the workflow, the compose file and the example
+environment. ATLAS-TASK-0024 brought those level in
+`2c4e7e8bdbf2839b11fe25e38b7b0d9bbd8c4732`, and CI run 44 against that commit is
+green in both jobs. The citation is left as the feature commit — the
+history is not rewritten — and the gap against the definition of **Complete**
+above is recorded here instead.
 
 ATLAS-TASK-0019 is complete, committed and pushed. `main` and `origin/main` are
 both `a634fa48`, the closeout commit for that task, so the push its entry below
@@ -90,16 +108,31 @@ implementation specification for that decision, and `d0f5b709` is the commit
 that implements it. As with ADR-0013, ADR-0014 has no row in that table and will
 not acquire one — a decision is not a task.
 
+**ADR-0015 is accepted, and ATLAS-TASK-0023 is implemented.** ADR-0015 —
+`docs/adr/0015-broker-adapter-selection.md`, indexed in `docs/adr/README.md` —
+decides that `apps/atlas-core` selects `MT5BrokerAdapter`, translates the broker
+section of `AtlasSettings` into an `MT5Config` at its own composition boundary,
+constructs the adapter during start-up and hands it to a `BrokerOwner`, and that
+a broker section no session could be opened from fails start-up at that
+translation. `docs/tasks/ATLAS-TASK-0023.md` is the implementation specification
+for that decision, and `6f5eff81361e904b746a37a8c975683b138972e7` is the commit
+that implements it. As with ADR-0013 and ADR-0014, ADR-0015 has no row in that
+table and will not acquire one — a decision is not a task.
+
 ATLAS-TASK-0020 does not decide the broker or venue configuration surface.
 ADR-0013 declined to, and the specification names the absence of that surface in
 `AtlasSettings` as the exact dependency blocking construction of a live adapter,
 rather than inventing one to work around it. ATLAS-TASK-0021 does not decide it
 either: that task is a documentation correction, and the blocker is exactly
 where ADR-0013 left it. ADR-0014 decided it and ATLAS-TASK-0022 built it, which
-is the paragraph above. Nothing beyond ATLAS-TASK-0022 is defined, and this file
-declares no ATLAS-TASK-0023, no ADR-0015 and no work after them. The tasks above
-are the ones the repository itself declares; this file does not speculate past
-them.
+is the ADR-0014 paragraph above. ADR-0015 then decided what to build from that
+surface and ATLAS-TASK-0023 built it, which is the paragraph directly above this
+one.
+ATLAS-TASK-0024 is on `main` as well — `2c4e7e8bdbf2839b11fe25e38b7b0d9bbd8c4732`
+is its implementation, and it carries neither a specification file nor a row in
+the table above. Nothing beyond it is defined, and this file declares no
+ATLAS-TASK-0025, no ADR-0016 and no work after them. The tasks above are the
+ones the repository itself declares; this file does not speculate past them.
 
 ATLAS-TASK-0021 is the correction the ATLAS-TASK-0020 entry below calls for and
 declines to number. That entry closes "this file names no number for it", which
@@ -1412,6 +1445,100 @@ definition of **Complete** at the top of this file, of the kind ‡ records for
 ATLAS-TASK-0010 and of the kind ATLAS-TASK-0019's entry recorded before its own
 push, and like that one it is closed by the push rather than by a correction
 here.
+
+### ATLAS-TASK-0023 — constructing the broker adapter at startup
+
+Newly specified rather than recovered from the repository record — see the note
+marked † under the status table.
+
+`apps/atlas-core` builds a broker adapter now. ADR-0015 decided that the
+application selects `MT5BrokerAdapter`, translates the broker section of
+`AtlasSettings` into an `MT5Config` at its own composition boundary, constructs
+the adapter during start-up and hands it to a `BrokerOwner`, and that a broker
+section no session could be opened from fails start-up at that translation. This
+task performed that translation, that construction and that handoff, and nothing
+else. Six files, 642 insertions against 49 deletions, three of the six being
+test files.
+
+**The selection lives in one module.**
+`apps/atlas-core/src/atlas/apps/core/composition.py` is the only module beneath
+`apps/` that may name the selected implementation, and `build_broker_owner` is
+the only function in it. It reads the four values a session cannot be
+established without and passes no others: `timeout_ms`, `portable` and
+`server_utc_offset` keep the defaults `MT5Config` gives them, because no setting
+corresponds to any of the three and inventing one would be a decision this task
+does not hold. Construction contacts no terminal and imports no vendor package,
+so the module runs unchanged on a host where MetaTrader 5 is absent. Opening the
+session belongs to `BrokerOwner.start`, and no accepted decision yet says when
+that happens.
+
+**The refusal lands at the translation, and start-up now depends on it.**
+`BrokerSettings` accepts its own not-configured defaults, because settings must
+resolve for a process that holds no trading configuration; `MT5Config` accepts
+no such thing. The `ValidationError` from the gap between them is re-raised as
+`ConfigurationError`, in the configuration package's own vocabulary, so the
+entrypoint's existing handler reports it rather than start-up gaining a second
+way to fail. `main` builds the adapter before it writes the startup record, so a
+broker section that could not open a session leaves stdout empty and exits `2`.
+The entrypoint's documented exit codes were rewritten to say so, and
+`.env.example`'s broker block — which had said the defaults permit nothing and a
+process with the block unset still starts — now says all four values are
+required.
+
+**The adapter is constructed and dropped.** Nothing holds it after
+`build_broker_owner` returns. ADR-0015 decided that start-up builds the adapter;
+nothing yet decides what holds one afterwards, and giving it a home in the
+entrypoint would answer a question no record has answered. No session is opened
+and no loop runs. The startup record gained no key — `build_startup_record` is
+untouched and still emits its eight — and neither the login nor the password
+reaches the rendered line.
+
+**The boundary test changed by permission, not by convenience.** ADR-0015
+established, by running the scanners in
+`tests/unit/test_core_broker_boundary.py` against a hypothetical translation
+module, that three assertions in that file failed the moment an application
+named `MT5Config` — and it recorded that before lifting the prohibition, on the
+terms the file itself set: by a decision record rather than by an edit to a
+test. The lift is bounded to the composition module
+and the boundary is still asserted, not assumed — the file grants
+`atlas.broker.mt5` and the two selected names to that module and to no other,
+carries a test proving the composition edge rule can fire, and its `APP_SOURCES`
+glob scans any new file under `apps/` automatically. The contract suite was left
+at 191, the count ATLAS-TASK-0022 left it at.
+
+This task has four commits and reached `main` by direct commit rather than
+through a pull request, so there is no merge commit for the row above to cite.
+`8db18fcd37b940c0cb5e6bad46fb5a5b33c57510` accepted ADR-0015;
+`a83f9984446b2b0c871fa2274af39ecfd14f7fd8` indexed it in `docs/adr/README.md`;
+`9b9e3df6b4b064b95117547bf5305ece61ec5ee6` added the specification; and
+`6f5eff81361e904b746a37a8c975683b138972e7` is the implementation, which the row
+above cites. No commit was amended.
+
+The gates did not all pass on that commit. CI run 43 covered it, the Quality
+Gate was green in full — Ruff, Black, MyPy and Pytest — and Container & Compose
+failed, which is the gap recorded at ¶ under the status table.
+ATLAS-TASK-0024 closed it in `2c4e7e8bdbf2839b11fe25e38b7b0d9bbd8c4732`, whose
+run is green in both jobs. The row above therefore records a task whose local
+and Quality Gate evidence held on its own tree and whose container evidence
+arrived one commit later. The citation stays on the feature commit and the
+history is not rewritten.
+
+Documents went stale when this commit landed, and none of them is corrected
+here. `docs/architecture/overview.md` says that although `apps/atlas-core` owns
+the `BrokerAdapter`, no adapter is constructed outside the test suite for it to
+hold, which is now false; the same file describes the `atlas-core` entrypoint as
+resolving configuration, enforcing the environment's invariants, emitting a
+startup record and exiting, which is now incomplete. ADR-0015's own closing
+sentence — "Nothing in this record is implemented. No adapter is constructed, no
+translation exists, no boundary test changes" — was true when written and is
+false of the repository now; the immutability rule leaves it exactly where it
+is, as it leaves ADR-0011's. The three items the ATLAS-TASK-0022 entry above
+recorded are carried forward untouched as well: that entry's account of
+`tests/unit/risk/test_risk_boundary.py:150-159`, of ADR-0011 `:101-103`, and of
+`docs/architecture/overview.md`'s count of configuration sections all still
+stand as it wrote them. Correcting any of this is a separate living-document
+task, per the precedent of ATLAS-TASK-0015, ATLAS-TASK-0016, ATLAS-TASK-0019 and
+ATLAS-TASK-0021; this file names no number for it.
 
 ## Known documentation debt
 
