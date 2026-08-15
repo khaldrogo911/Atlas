@@ -36,10 +36,11 @@ and in package documentation. This file is where they resolve to a status.
 | ATLAS-TASK-0022 † | The broker configuration surface: `BrokerSettings` | ✅ Complete | `d0f5b709979a3b634c859b31c77fd5dc41c6ab7b` |
 | ATLAS-TASK-0023 † | Construct the broker adapter at startup | ✅ Complete | `6f5eff81361e904b746a37a8c975683b138972e7` ¶ |
 | ATLAS-TASK-0024 † | CI Container Self-Check After Broker Startup Construction | ✅ Complete | `2c4e7e8bdbf2839b11fe25e38b7b0d9bbd8c4732` |
+| ATLAS-TASK-0025 † | Living-document correction after broker adapter construction | ✅ Complete | `db92e7795055bc88f022c1a4b9932ef9fe586fe1` |
 
 † **Newly specified, not recovered.** The unmarked rows are evidenced by the
 repository record: the task existed, and the commit it cites is the work.
-ATLAS-TASK-0011 through ATLAS-TASK-0024 were each specified and authorised as
+ATLAS-TASK-0011 through ATLAS-TASK-0025 were each specified and authorised as
 new work during the task itself. Their presence in this table is not evidence
 that any was previously planned, and none may be described as recovered project
 history or as previously completed.
@@ -132,9 +133,11 @@ one.
 ATLAS-TASK-0024 carried that work into the deployment surface, and
 `2c4e7e8bdbf2839b11fe25e38b7b0d9bbd8c4732` is its implementation. It has no
 specification file; its row above was written all the same, as
-ATLAS-TASK-0018's was. Nothing beyond it is defined, and this file declares no
-ATLAS-TASK-0025, no ADR-0016 and no work after them. The tasks above are the
-ones the repository itself declares; this file does not speculate past them.
+ATLAS-TASK-0018's was. ATLAS-TASK-0025 then corrected the living documents
+that construction left stale, and its row is the last one above. This file
+declares no ADR-0016 and no work after ATLAS-TASK-0025. The tasks above are
+the ones the repository itself declares; this file does not speculate past
+them.
 
 ATLAS-TASK-0021 is the correction the ATLAS-TASK-0020 entry below calls for and
 declines to number. That entry closes "this file names no number for it", which
@@ -149,6 +152,18 @@ entry goes on to describe as the remaining work — "when the configuration
 decision is taken, the work it leaves is one call site" — is where this task
 leaves it. That entry is left as written, as ATLAS-TASK-0019's and
 ATLAS-TASK-0020's were.
+
+ATLAS-TASK-0025 is the correction the ATLAS-TASK-0022 and ATLAS-TASK-0023
+entries below call for and decline to number. Both close with "this file names
+no number for it", which was true when each was written and is answered by the
+row above; both entries are left as written, as ATLAS-TASK-0019's,
+ATLAS-TASK-0020's and ATLAS-TASK-0021's were. It answers them in part and not
+in full, which is the deliberate half: the two `docs/architecture/overview.md`
+passages and the stale `#:` comment in `tests/unit/risk/test_risk_boundary.py`
+are corrected, while ADR-0011 `:99-103` and ADR-0015's closing sentence are
+left exactly where the immutability rule in `docs/adr/README.md` puts them —
+false of the repository now, and not this file's to correct or an ADR's to
+amend.
 
 ## Completed
 
@@ -1623,6 +1638,146 @@ both jobs, Quality Gate and Container & Compose, with the configured self-check
 and the negative self-check both passing. The row above therefore has no gap of
 its own against the definition of **Complete** at the top of this file, and none
 is recorded for it.
+
+### ATLAS-TASK-0025 — living-document correction after adapter construction
+
+Newly specified rather than recovered from the repository record — see the note
+marked † under the status table.
+
+No source file changed. ATLAS-TASK-0023 made building the trading adapter part
+of start-up and the documents describing start-up went on describing a process
+that only resolved configuration; ATLAS-TASK-0022 added a third
+credential-bearing settings section and the comment deriving
+`CREDENTIAL_SYMBOLS` went on saying there were two. Both entries above record
+those statements becoming false on the commits that landed them, and both
+decline to number the task that would correct them. This is that task. It
+corrects three passages of `docs/architecture/overview.md` and one comment in
+`tests/unit/risk/test_risk_boundary.py` and does nothing else: two files, four
+hunks, 29 insertions against 14 deletions, plus the specification that governs
+them.
+
+**The false clause was a premise, and the conclusion it carried survives.**
+`overview.md:118-123` said that although `apps/atlas-core` owns the
+`BrokerAdapter`, no adapter is constructed outside the test suite for it to
+hold — so the request `atlas.execution` builds is received by nothing.
+ATLAS-TASK-0023 falsified the premise and left the conclusion true, which is
+the shape ATLAS-TASK-0021 met in this same passage one cycle earlier. The
+corrected text states that the application builds an adapter at start-up from
+the broker configuration it resolves, and then states the two things still
+absent — nothing holds it afterwards, and no session is opened with it — so
+the conclusion now follows from what is true rather than from what was. Both
+ADR-0013 and ADR-0015 are cited rather than restated.
+
+**The entrypoint gained the step it had acquired, and the exit codes it always
+had.** `:191-193` described a process that resolves configuration, enforces the
+environment's invariants, emits a JSON startup record and exits. It now records
+that it builds the broker adapter that configuration describes before it writes
+the record, and that a run getting that far exits `0` while configuration it
+cannot resolve — or a broker section it cannot translate — leaves stdout empty
+and exits `2` instead. That is `__main__.py`'s documented behaviour, and
+ATLAS-TASK-0024's two container self-checks assert both halves of it on every
+push. The `At ATLAS-TASK-0001` marker on "has no run loop" is neither re-dated
+nor removed: no run loop was added, and the sentence is still true.
+
+**The banner is re-dated to the last completed row, not to this task.** It
+reads "Status at ATLAS-TASK-0024", which is what the table above recorded as
+**Complete** when the correction was written, and only the task number moved
+inside it. This is the ruling ATLAS-TASK-0021 reached and recorded: the banner
+has named the last **Complete** row every time it has moved, and naming
+ATLAS-TASK-0025 would have made the document cite a row this file did not yet
+carry.
+
+**The comment was corrected and the tuple was not, which is the point.**
+`CREDENTIAL_SYMBOLS` derived itself from "the two sections that lead anywhere
+credential-bearing" and there are three — `postgres`, `redis` and `broker`. The
+tuple is correct as it stands and is byte-identical: reaching
+`get_settings().broker.password` requires `password`, `get_secret_value` or
+`SecretStr`, each already in it, so the credential ATLAS-TASK-0022 added was
+covered before that task existed. Adding `"broker"` would have been a
+broadening and a false positive waiting to happen, because `_referenced_names`
+records the last segment of an `ast.alias` and the entry would fire on `import
+atlas.broker` — a form the boundary test expressly permits and one that reaches
+no credential. The comment now says all of that, so the next reader who notices
+the count meets a ruling rather than an oversight.
+
+**The comment says what was verified, not what the specification predicted.**
+Specification §10 T-10 stated that `atlas.risk` writes the triggering import
+form "and does", and the ATLAS-TASK-0022 entry above had recorded the same
+thing. Checked against the package rather than restated, it is false: every
+risk module reaches the port through `from atlas.broker import …`, which
+registers the imported symbol and never `broker`, and no risk module contains
+the plain dotted form. The permanent comment therefore says the entry would be
+a false positive waiting for the first module that wrote one, which is true,
+rather than reproducing a claim that is not. A specification is not evidence
+about the code it describes, and documentation that stopped matching the
+repository is the entire subject of this task. The tuple, the boundary and
+every assertion are unaffected either way.
+
+**No test behaviour changed, and that is proved rather than asserted.** The
+abstract syntax tree of `test_risk_boundary.py` is identical to the baseline's,
+compared as `ast.dump` output with attributes excluded, and so is its token
+stream with comments removed; no non-comment line changed, and
+`CREDENTIAL_SYMBOLS`, `PERMITTED_CONFIG_ACCESS`, `PERMITTED_ATLAS_PACKAGES`,
+`PERMITTED_CONFIG_NAMES` and `WHOLE_MODULE` are each identical. The suite still
+collects 3699, the contract suite 217 and the boundary file 100 — the baseline
+counts, unchanged, which is the only thing they can be evidence of here. No
+test reads `docs/architecture/overview.md` and none was added, on the reasoning
+ATLAS-TASK-0013, ATLAS-TASK-0015, ATLAS-TASK-0019 and ATLAS-TASK-0021 each
+gave: a test that read prose would make the wording of a banner a contract, and
+this task moves that banner.
+
+**No architectural decision was taken.** No ADR was created, edited or indexed,
+and no ADR-0016 exists. `BrokerOwner`, `composition.py`, `MT5Config` and
+`MT5BrokerAdapter` appear nowhere in the corrected prose, which names an
+application and a configuration section and no class — the rule
+ATLAS-TASK-0021 set when it declined to name the owner as a type. Nothing was
+decided about a run loop, a lifecycle, supervision, reconnection, failover, a
+second adapter, venue or account, a downstream consumer of the `OrderRequest`,
+or where a constructed adapter should eventually live; every sentence added
+about any of those says that it does not exist. The six edges between feature
+packages are the six that were there before, and ADR-0012's revisit condition
+is not reopened.
+
+**The specification contained a defect, and it is recorded rather than
+repaired.** Its §3.2 lists `overview.md:121-122` among the passages that must
+survive byte-for-byte, while its §5 and §8 authorise rewriting `:118-123`,
+which contains them. Both cannot hold: line 121 opens with `that suite for it
+to hold —`, the tail of the very claim P-1 exists to delete. The implementation
+followed §10 T-3, which asks that the passage be preserved "in substance", and
+the clause §3.2 actually quotes — "so the request `atlas.execution` builds is,
+today, received by nothing" — survives verbatim with only its line break moved.
+This is a contradiction inside the acceptance contract rather than a defect in
+the diff; no correct implementation of P-1 could have satisfied both readings,
+and the specification is left exactly as it was authorised and committed.
+
+What this task did not correct is recorded in its §15 and stands. ADR-0011
+`:99-103` still says there is no broker or venue surface anywhere in
+`AtlasSettings`, and ADR-0015's closing sentence still says nothing in it is
+implemented; both are false of the repository and both are immutable, which is
+what ADR-0013 `:280-283` pre-recorded as the rule working as designed —
+corrections belong in the living documents and never in an accepted record. The
+ATLAS-TASK-0023 §21.2 gap is open, `MT5Config` still accepting an empty
+password and a bare `terminal_path`, and closing it is a new invariant that
+needs a decision rather than a documentation task. Nothing is added to the
+"Known documentation debt" section below: the corrections this task was written
+for are discharged, not deferred.
+
+This task has three commits and reached `main` by direct commit rather than
+through a pull request, as ATLAS-TASK-0015 through ATLAS-TASK-0024 did, so
+there is no merge commit for the row above to cite.
+`6e880e1986aa53fba69fbe7d6692478835c1e12e` added the specification;
+`db92e7795055bc88f022c1a4b9932ef9fe586fe1` is the implementation, which the row
+above cites; and this closeout is the third. No commit was amended. Locally:
+3699 passed, 217 in the contract suite and 100 in the boundary file, Ruff,
+Black and MyPy `--strict` clean across 104 source files, `git diff --check`
+clean, and `pre-commit run --all-files` green with `check json` skipped for
+want of a JSON file to check. As with ATLAS-TASK-0019's entry and
+ATLAS-TASK-0022's, this one is written before the push rather than after it, so
+no CI run exists against `db92e779` or against this closeout as it is written,
+and the row above records a task whose gates have passed locally and not yet in
+CI. That is a gap against the definition of **Complete** at the top of this
+file, of the kind ‡ records for ATLAS-TASK-0010, and like ATLAS-TASK-0019's it
+is closed by the push rather than by a correction here.
 
 ## Known documentation debt
 
