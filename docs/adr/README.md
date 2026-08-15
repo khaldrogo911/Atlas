@@ -24,6 +24,7 @@ the history of the system's reasoning stays intact.
 | [0013](0013-the-application-owns-the-adapter.md) | The application owns the adapter; the port stays in the broker package | Accepted |
 | [0014](0014-broker-settings-are-restated-not-imported.md) | Broker settings are restated in the configuration package, not imported | Accepted |
 | [0015](0015-broker-adapter-selection.md) | The application selects `MT5BrokerAdapter` and constructs it at startup | Accepted |
+| [0016](0016-unusable-broker-configuration-refuses-startup.md) | Unusable broker configuration refuses startup; the terminal path is not probed | Proposed |
 
 ## Writing one
 
