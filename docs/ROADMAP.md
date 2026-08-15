@@ -32,10 +32,11 @@ and in package documentation. This file is where they resolve to a status.
 | ATLAS-TASK-0018 † | Index ADR-0012 in `docs/adr/README.md` | ✅ Complete | `dfc1289949dca9f3b8506e6e2b99730495318669` |
 | ATLAS-TASK-0019 † | Living-document correction after the first risk control | ✅ Complete | `394df7debe6c77cbcf4e79cfe2cfc0ef798c1d8a` |
 | ATLAS-TASK-0020 † | Implement application ownership of `BrokerAdapter` | ✅ Complete | `55fcbd6161d49c986b0033f37493195c3226493e` |
+| ATLAS-TASK-0021 † | Living-document correction after application ownership of `BrokerAdapter` | ✅ Complete | `d7a68cb4aa6aa1a3465e1305e2b04b432adf00da` |
 
 † **Newly specified, not recovered.** The unmarked rows are evidenced by the
 repository record: the task existed, and the commit it cites is the work.
-ATLAS-TASK-0011 through ATLAS-TASK-0020 were each specified and authorised as
+ATLAS-TASK-0011 through ATLAS-TASK-0021 were each specified and authorised as
 new work during the task itself. Their presence in this table is not evidence
 that any was previously planned, and none may be described as recovered project
 history or as previously completed.
@@ -81,10 +82,17 @@ that table records tasks, and a decision is not a task.
 ATLAS-TASK-0020 does not decide the broker or venue configuration surface.
 ADR-0013 declined to, and the specification names the absence of that surface in
 `AtlasSettings` as the exact dependency blocking construction of a live adapter,
-rather than inventing one to work around it. Nothing beyond ATLAS-TASK-0020 is
-defined, and this file declares no ATLAS-TASK-0021, no ADR-0014 and no work
-after them. The tasks above are the ones the repository itself declares; this
-file does not speculate past them.
+rather than inventing one to work around it. ATLAS-TASK-0021 does not decide it
+either: that task is a documentation correction, and the blocker is exactly
+where ADR-0013 left it. Nothing beyond ATLAS-TASK-0021 is defined, and this file
+declares no ATLAS-TASK-0022, no ADR-0014 and no work after them. The tasks above
+are the ones the repository itself declares; this file does not speculate past
+them.
+
+ATLAS-TASK-0021 is the correction the ATLAS-TASK-0020 entry below calls for and
+declines to number. That entry closes "this file names no number for it", which
+was true when written and is answered by the row above; the entry is left as
+written, as ATLAS-TASK-0019's was.
 
 ## Completed
 
@@ -1170,6 +1178,95 @@ Ruff, Black and MyPy `--strict` clean across 102 source files, 3589 passed.
 separate living-document task, per ATLAS-TASK-0020 §17.3 and the precedent of
 ATLAS-TASK-0015, ATLAS-TASK-0016 and ATLAS-TASK-0019, and this file names no
 number for it.
+
+### ATLAS-TASK-0021 — living-document correction after application ownership
+
+Newly specified rather than recovered from the repository record — see the note
+marked † under the status table.
+
+No source file changed. ATLAS-TASK-0020 gave `apps/atlas-core` the adapter, and
+`docs/architecture/overview.md:118-121` went on saying that no layer owns a
+`BrokerAdapter` — the entry above records that sentence becoming false on the
+commit that landed it, and declines to number the task that would correct it.
+This is that task. It corrects that passage and the document's status banner and
+does nothing else: one file, two hunks, plus the specification that governs them.
+
+**One clause of four was false, and only that clause moved.** The passage makes
+four statements: the chain the data flow draws is not joined end to end, nothing
+outside the test suite produces a `TradeIntent`, no layer owns a
+`BrokerAdapter`, and so the `OrderRequest` `atlas.execution` builds is received
+by nothing. ATLAS-TASK-0020 falsified the third alone; the other three were
+checked against the repository and survive in substance. The specification's
+§4.1 records that verdict clause by clause, because the failure mode here is not
+missing the defect but over-correcting it — the false clause reads as the
+premise of the true conclusion, and a reader who loses that conclusion infers
+that an owner exists, therefore something places orders. Owning an adapter and
+being able to place an order are separated by everything ADR-0013 declined to
+decide. The corrected passage states that `apps/atlas-core` owns the adapter,
+keeps the conclusion, and cites ADR-0013 rather than restating it.
+
+**The owner is named as an application, not as a class.** `BrokerOwner` and its
+module appear nowhere in the corrected text. The fact the overview records is
+that an application owns the port; which type implements the holding is an
+implementation detail this document has no precedent for naming, and naming one
+would make the overview a second account of a module that already documents
+itself.
+
+**The banner is re-dated to the last completed row, not to this task.** It now
+reads "Status at ATLAS-TASK-0020", two tasks forward from where ATLAS-TASK-0019
+left it. Dating it to ATLAS-TASK-0021 was rejected on precedent and on the
+specification's own terms: the banner has named the last task this table records
+as **Complete** every time it has moved — `394df7de` set it to ATLAS-TASK-0018
+and `5e730b47` left it at ATLAS-TASK-0014 — and when the correction was written
+this file carried no ATLAS-TASK-0021 row for it to name. Specification §10 T-12
+forbids the document naming a task number the status table does not contain, so
+the alternative would have failed the task's own acceptance criteria. Nothing
+else in the banner block moved.
+
+**No architectural decision was taken.** No ADR was created, edited or
+footnoted. ADR-0011's non-guarantee — that the broker-owning layer it names does
+not exist — is left untouched, which is what ADR-0013 `:290-293` pre-recorded as
+the immutability rule working as designed: the correction belongs in the living
+documents, never in the ADR. No contract, boundary, edge or behaviour changed;
+the six edges between feature packages are the six that were there before, and
+the application-to-package edge ATLAS-TASK-0020 added was neither counted among
+them nor ruled on. The broker and venue configuration surface, adapter
+selection, startup wiring, supervision, what kind of rule an `apps/` boundary
+is, whether `apps/dashboard` may hold an adapter, order identity and
+idempotency, and the remaining risk-state contracts are all exactly where
+ADR-0013 left them.
+
+**The test suite does not verify this change, and no debt was opened.** No test
+reads `docs/architecture/overview.md`. Three cite the filename in a comment and
+all three cite what it says about `atlas.common` — dependency-free, and the home
+of the clock — which is nowhere near the corrected passage. None was added, on
+the reasoning ATLAS-TASK-0013, ATLAS-TASK-0015 and ATLAS-TASK-0019 each gave:
+a test that read prose would make the wording of a banner a contract, and this
+task moves that banner. Acceptance rested on reading the corrected passage
+against the code and on mechanical checks of the diff — one file, two hunks,
+both within the permitted lines, and every ADR blob unchanged. The
+specification's §9 placed the "Known documentation debt" section below out of
+scope, and this task opens no entry there: the correction it was written for is
+discharged, not deferred.
+
+This task has three commits and reached `main` by direct push rather than
+through a pull request, as ATLAS-TASK-0015 through ATLAS-TASK-0020 did, so there
+is no merge commit for the row above to cite.
+`ad766252d33151298ad8a95a5ab5e9c98c4bae82` added the specification;
+`c0401b1b3606eca7486ef86b2ac00f0d020be46e` corrected it, recording the banner
+ruling the reviewer issued after the specification was written, so that the
+committed specification matches the authorisation the work was done under; and
+`d7a68cb4aa6aa1a3465e1305e2b04b432adf00da` is the implementation, which the row
+above cites. Neither specification commit was amended. The push was a
+fast-forward from `62d7ac47`: that commit is an ancestor of this one and `main`
+advanced by exactly three commits. CI passed, verified by `head_sha` rather than
+by recency: run `31858153277` of `.github/workflows/ci.yml` against
+`d7a68cb4aa6aa1a3465e1305e2b04b432adf00da`, run number 39, attempt 1, with
+Quality Gate and Container & Compose both successful and neither skipped, so
+there is no gap of the kind recorded at ‡. Locally only the test suite was run,
+because the change is documentation and touches no Python: 3589 passed, the
+baseline count, unchanged, which is the only thing it can be evidence of here.
+Ruff, Black and MyPy ran in CI's Quality Gate rather than on this machine.
 
 ## Known documentation debt
 
