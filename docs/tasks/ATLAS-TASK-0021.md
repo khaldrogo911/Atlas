@@ -6,7 +6,7 @@
 **Decision record:** None. This task creates no ADR and edits none. See §16.
 
 This task is documentation-only. It adds no behaviour, no contract, no
-dependency edge, no capability and no test. It touches one file and one passage
+dependency edge, no capability and no test. It touches one file and two passages
 inside it. It replaces a statement that is false today with a fact already
 provable from the code at the baseline commit above.
 
@@ -157,9 +157,9 @@ from `ATLAS-TASK-0014` to `ATLAS-TASK-0018`, on the reasoning that the banner
 exists to be compared against the roadmap's last row.
 
 At the baseline the banner reads `> **Status at ATLAS-TASK-0018.**` and the
-roadmap's last row is `ATLAS-TASK-0020`. Whether this task re-dates it is **not
-decided by this specification** — see D-2 in §7, which is referred to the
-reviewer rather than resolved.
+roadmap's last row is `ATLAS-TASK-0020`. **This task corrects that staleness.**
+D-2 in §7 records the decision, the value the banner is re-dated to, and the
+bound on it.
 
 ---
 
@@ -213,13 +213,13 @@ would introduce a falsehood.
 
 ## 5. Scope
 
-**Exactly one correction, in one file: P-1.**
+**Exactly two corrections, in one file: P-1 at `:118-121`, and the stale status
+banner at `:3` (D-2).**
 
-Nothing else in `docs/architecture/overview.md` changes, subject to the
-reviewer's ruling on D-2 (§7). No other file changes.
+Nothing else in `docs/architecture/overview.md` changes, and no other file
+changes.
 
-If D-2 is ruled in scope, the diff is two hunks in one file; if ruled out of
-scope, one hunk in one file. In neither case does any other passage move.
+The diff is two hunks in one file. No other passage moves.
 
 ---
 
@@ -276,28 +276,39 @@ of what now exists. Rejected because C-1, C-2 and C-3 are the document's only
 statement of how far the pipeline is from joined, and the document has no other
 home for them.
 
-### D-2 — Whether the banner is re-dated is REFERRED TO THE REVIEWER
+### D-2 — The status banner is included in this task, and is re-dated
 
-**This specification does not decide it.** Both readings are supported by
-repository evidence, and they conflict.
+**Decided: the banner is in scope.** This task corrects both the false clause at
+`:118-121` and the stale status banner at `:3`. The banner correction is a
+living-document correction of exactly the same kind as P-1 — a statement that
+has fallen behind the repository — and it is not an architectural decision.
 
-*For re-dating to `ATLAS-TASK-0020`.* ATLAS-TASK-0015 §7 D-1 states the banner's
-purpose: "a reader compares it to the roadmap's last row and knows immediately
-how much to trust." The roadmap's last row is now `ATLAS-TASK-0020`, and the
-banner reads `ATLAS-TASK-0018`. ATLAS-TASK-0019 D-1 re-dated the banner as part
+*Why it is included.* ATLAS-TASK-0015 §7 D-1 states the banner's purpose: "a
+reader compares it to the roadmap's last row and knows immediately how much to
+trust." At the baseline the banner reads `ATLAS-TASK-0018` while the roadmap's
+last row is `ATLAS-TASK-0020`. ATLAS-TASK-0019 D-1 re-dated the banner as part
 of exactly this kind of correction, on exactly this reasoning. On that
 precedent, a living-document correction that leaves the banner stale has done
 half its job.
 
-*Against re-dating in this task.* The authorisation for this work names one
-correction, `docs/architecture/overview.md:118-121`. The banner is a different
-passage, at `:3`, and it is not false — `:24-25` says the roadmap governs where
-the two disagree, so a banner one task behind is dated, not wrong. ATLAS-TASK-0016
-exists because a previous correction swept in more than its list allowed, and
-§4.2 of that task is the record of the cost.
+*What the banner is re-dated to.* **`ATLAS-TASK-0020`** — the last task the
+roadmap's status table records as Complete, and not this task's own number. The
+convention is the repository's own: ATLAS-TASK-0019 set the banner to
+`ATLAS-TASK-0018` in commit `394df7d`, and ATLAS-TASK-0015 left it at
+`ATLAS-TASK-0014` in `5e730b4`. In both cases the banner names the last
+completed task, and in neither does it name the task performing the correction.
+Writing `ATLAS-TASK-0021` would additionally violate T-12, because no row for
+this task exists in `docs/ROADMAP.md` at implementation time and §8 forbids
+adding one. The implementer re-verifies the roadmap's last row before writing
+the value (§13.4).
 
-*What must not happen.* The implementer must not decide this. If the reviewer
-does not rule, §15.10 applies: stop and report.
+*The bound.* This decision authorises re-dating the stale status reference and
+nothing else. The remainder of the banner block at `:4-25` is unchanged — in
+particular `:24-25`, "Where this banner and the roadmap disagree, the roadmap is
+correct", which stays exactly as it is. D-2 does not authorise a broader rewrite
+of the overview, and it makes no architectural, broker or venue configuration,
+adapter-selection, startup-wiring or supervision decision. Every deferral in §6
+and §17 survives it untouched.
 
 ---
 
@@ -307,7 +318,7 @@ During implementation, exactly this:
 
 | Path | Change |
 |---|---|
-| `docs/architecture/overview.md` | Correction P-1 at `:118-121`, and the banner at `:3` **only if** D-2 is ruled in scope |
+| `docs/architecture/overview.md` | Correction P-1 at `:118-121`, and the stale status reference in the banner at `:3` (D-2) |
 
 Plus this specification file, `docs/tasks/ATLAS-TASK-0021.md`, which is not
 modified by the implementation.
@@ -375,8 +386,9 @@ this correction rests on; the second is the evidence for C-3 and for `:189-191`.
 **Everything else outside §8**, and in particular every file under `packages/`,
 `apps/`, `.github/`, `config/`, `infrastructure/` and `scripts/`.
 
-**Every passage of `docs/architecture/overview.md` outside `:118-121`**, subject
-to D-2, and everything named in §4.2.
+**Every passage of `docs/architecture/overview.md` outside `:118-121` and the
+stale status reference in the banner at `:3`** — including the rest of the
+banner block at `:4-25`, and everything named in §4.2.
 
 ---
 
@@ -508,8 +520,10 @@ or against anything in §10.
 4. **Re-verify the baseline count.** The roadmap's last row is
    `ATLAS-TASK-0020`, cited at `55fcbd6161d49c986b0033f37493195c3226493e`.
 5. **After the edit**, `git diff --stat` must report exactly one file changed,
-   and `git diff` must show changes confined to `:118-121` — plus `:3` only if
-   D-2 was ruled in scope.
+   and `git diff` must show two hunks, confined to `:118-121` and the status
+   reference in the banner at `:3`. Confirm the banner now names the roadmap's
+   last Complete row (`ATLAS-TASK-0020` at the baseline, re-verified at step 4)
+   and that `:4-25` is untouched.
 6. **Confirm the ADRs are untouched**: each blob in §9 is unchanged.
 7. Run the full test suite. Expect 3589 passed.
 8. Ruff, Black and MyPy are not required locally: the change touches no Python.
@@ -538,8 +552,10 @@ or against anything in §10.
 - **AC-8.** The diff contains no statement that decides, prepares for, or
   presumes an answer to anything in §6 or §17.
 - **AC-9.** The diff introduces no task identifier and no ADR identifier.
-- **AC-10.** If D-2 was not ruled by the reviewer, the banner is unchanged and
-  the implementer has reported the ambiguity rather than resolving it.
+- **AC-10.** The status banner at `:3` names the roadmap's last Complete row —
+  `ATLAS-TASK-0020` at the baseline — per D-2. The change is confined to that
+  stale status reference: the rest of the banner block at `:4-25` is unchanged,
+  including `:24-25`, and no other passage of the overview moved.
 
 ---
 
@@ -571,7 +587,11 @@ Stop and report rather than deciding, if:
    wording either leaves P-1 false or asserts something undecided, the
    specification is wrong and must be revised before implementation, not worked
    around. Report the wordings tried and what each would have decided.
-10. **D-2 has not been ruled by the reviewer.** The implementer must not choose.
+10. **The banner correction cannot be made within the bound D-2 sets.** For
+    example: it would require editing the banner block beyond the stale status
+    reference, changing the banner's form, adding a roadmap row to make a value
+    true, or naming a task number the roadmap's status table does not contain.
+    Report rather than widening the correction.
 11. The scope expands beyond documentation correction for any reason.
 
 In every case: report both pieces of conflicting evidence and explain the
