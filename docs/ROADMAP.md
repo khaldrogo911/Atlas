@@ -228,6 +228,66 @@ own: it carried that same implementation into CI. This file declares no work
 after ATLAS-TASK-0028. The tasks above are the ones the repository itself
 declares; this file does not speculate past them.
 
+**ADR-0016 and ADR-0017 are now accepted, and the paragraphs above calling them
+proposed are answered here rather than corrected there.** The owner accepted
+both as written, in the same decision that created ADR-0018. Acceptance changed
+one word in each record — the `**Status:**` line — and the matching cell in
+`docs/adr/README.md`; no other line of either record was touched, and neither
+record's decision moved. This is the first time the `Proposed` → `Accepted`
+transition has been exercised here: ADR-0001 through ADR-0015 each entered the
+index already accepted, so until now the status vocabulary in
+`docs/adr/README.md` described a step the repository had never taken. The two
+paragraphs above are left as written, as ATLAS-TASK-0019's, ATLAS-TASK-0020's,
+ATLAS-TASK-0021's, ATLAS-TASK-0022's and ATLAS-TASK-0023's entries were. So is
+the sentence in the ATLAS-TASK-0026 entry below recording that ADR-0016 was
+proposed when that task shipped, which is a statement about the moment the task
+shipped and stays true. The claim above that two records govern shipped
+behaviour without having been accepted was true when written and is answered
+here; what the owner accepted is what those records already said, so no shipped
+behaviour changed and neither implementing task is reopened.
+
+One consequence of accepting ADR-0017 is left standing rather than repaired.
+Its `## Relationship to ADR-0016` section says ADR-0016 "remains `Proposed`",
+which was true when that record was written and is false now. It is left exactly
+where the immutability rule in `docs/adr/README.md` puts it, as ADR-0011
+`:99-103` and ADR-0015's closing sentence were — false of the repository now,
+and not this file's to correct or an ADR's to amend. The contingency the same
+section attaches to ADR-0016's status turns on that record being *rejected*, not
+accepted, so acceptance settles it rather than triggering it.
+
+**ADR-0018 is accepted, and it specifies no task.** ADR-0018 —
+`docs/adr/0018-the-runtime-process-shape-is-deferred.md`, indexed in
+`docs/adr/README.md` — decides that the long-lived runtime and process shape is
+intentionally deferred pending an explicit architectural decision, and that no
+persistent broker session, run loop, supervision, reconnect, failover, strategy
+lifecycle, risk integration or execution pipeline is implemented until a
+dedicated record defines that shape and is accepted. It is the first record here
+that decides a prohibition rather than a construction. It names the questions
+that record must answer and the process shapes it declines to choose between,
+and it chooses none of them: the deferral is the decision. It has no
+specification file, no implementing commit and no task, because there is nothing
+to implement — the whole of its effect is a constraint on what may be built
+next. As with ADR-0013, ADR-0014, ADR-0015, ADR-0016 and ADR-0017, ADR-0018 has
+no row in that table and will not acquire one — a decision is not a task. Unlike
+them, it will acquire no implementing task either, and this file still declares
+no work after ATLAS-TASK-0028.
+
+ADR-0018 carries `Accepted` from its first commit, and that is not a formality
+here. A prohibition that has not been accepted binds nothing, and the record
+says as much of itself: the gate it describes closes when the owner accepts it.
+The owner accepted it in the same decision that accepted ADR-0016 and ADR-0017,
+so the gate is in force rather than pending, and the deferral it records is not
+a note about future intentions but a constraint on what may be built next. The
+two records that governed shipped behaviour while proposed, recorded above, are
+why that distinction is written down rather than assumed — the difference
+between what a record carries and what the owner has authorised has been
+load-bearing twice in this file already, and it is not left ambiguous a third
+time.
+
+ADR-0018 therefore enters the index already accepted, as ADR-0001 through
+ADR-0015 did, and unlike ADR-0016 and ADR-0017 it was never implemented against
+while proposed, because there is nothing to implement against it.
+
 ATLAS-TASK-0021 is the correction the ATLAS-TASK-0020 entry below calls for and
 declines to number. That entry closes "this file names no number for it", which
 was true when written and is answered by the row above; the entry is left as

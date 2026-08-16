@@ -1,6 +1,6 @@
 # ADR 0016 — Unusable broker configuration refuses startup; the terminal path is not probed
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-08-15
 
 ## Context

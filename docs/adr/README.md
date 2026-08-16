@@ -24,8 +24,9 @@ the history of the system's reasoning stays intact.
 | [0013](0013-the-application-owns-the-adapter.md) | The application owns the adapter; the port stays in the broker package | Accepted |
 | [0014](0014-broker-settings-are-restated-not-imported.md) | Broker settings are restated in the configuration package, not imported | Accepted |
 | [0015](0015-broker-adapter-selection.md) | The application selects `MT5BrokerAdapter` and constructs it at startup | Accepted |
-| [0016](0016-unusable-broker-configuration-refuses-startup.md) | Unusable broker configuration refuses startup; the terminal path is not probed | Proposed |
-| [0017](0017-startup-opens-a-session-and-closes-it.md) | Startup opens a broker session, verifies it and closes it; `atlas-core` is not a long-running process | Proposed |
+| [0016](0016-unusable-broker-configuration-refuses-startup.md) | Unusable broker configuration refuses startup; the terminal path is not probed | Accepted |
+| [0017](0017-startup-opens-a-session-and-closes-it.md) | Startup opens a broker session, verifies it and closes it; `atlas-core` is not a long-running process | Accepted |
+| [0018](0018-the-runtime-process-shape-is-deferred.md) | The long-lived runtime and process shape is deferred pending its own decision | Accepted |
 
 ## Writing one
 

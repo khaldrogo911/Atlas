@@ -1,6 +1,6 @@
 # ADR 0017 — Startup opens a broker session, verifies it and closes it; `atlas-core` is not a long-running process
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-08-16
 
 ## Context
