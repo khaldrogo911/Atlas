@@ -65,7 +65,7 @@ per restart. Common causes:
 | `logging.format must be 'json' in production` | Console logging under production | Set `ATLAS_LOGGING__FORMAT=json` |
 | `pool_max_size ... must be greater than or equal to` | Pool bounds inverted | Correct the pool settings |
 | `Extra inputs are not permitted` | Typo in a TOML section key | Section models forbid unknown keys; fix the key name |
-| `invalid broker configuration` | The broker section describes no session a terminal could be opened with — `login` is `0` or `server` is empty | Set all four `ATLAS_BROKER__*` values. Since ATLAS-TASK-0023 start-up builds the trading adapter, so this is a start-up failure rather than a later one |
+| `invalid broker configuration` | The broker section describes no session a terminal could be opened with — `login` is not greater than `0`, `password` or `server` is empty, or `terminal_path` is left at the `.` default | Set all four `ATLAS_BROKER__*` values. Since ATLAS-TASK-0023 start-up builds the trading adapter, so this is a start-up failure rather than a later one |
 
 Outside compose the same refusal applies, and there it is the likelier surprise:
 `poetry run atlas-core` reads `.env` from the working directory, so a shell whose

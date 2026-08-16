@@ -200,10 +200,13 @@ class BrokerSettings(BaseModel):
     permit nothing all the same: ``0`` is not a usable account number and an
     empty string is not a usable server, so no session can be opened from them.
     Absence is not permission here for the same reason it is not in
-    :class:`RiskSettings` — but the refusal lands where a connection is
-    assembled rather than at start-up, because nothing assembles one yet, and a
-    start-up invariant would refuse every process for want of configuration
-    nothing reads.
+    :class:`RiskSettings`. The refusal lands where a connection is assembled
+    rather than in this section — and since ATLAS-TASK-0023 that place is
+    start-up, because a trading adapter is assembled there unconditionally, in
+    every environment. A process whose broker section describes no session that
+    could be opened therefore fails at start-up rather than later. ADR-0016
+    records that decision and governs which values are refused; this section
+    declares the defaults, not the rules.
 
     The password is a :class:`~pydantic.SecretStr` supplied through the process
     environment, which is the route the other two already use. No file under
