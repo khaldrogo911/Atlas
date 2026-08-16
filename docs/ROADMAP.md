@@ -37,10 +37,11 @@ and in package documentation. This file is where they resolve to a status.
 | ATLAS-TASK-0023 † | Construct the broker adapter at startup | ✅ Complete | `6f5eff81361e904b746a37a8c975683b138972e7` ¶ |
 | ATLAS-TASK-0024 † | CI Container Self-Check After Broker Startup Construction | ✅ Complete | `2c4e7e8bdbf2839b11fe25e38b7b0d9bbd8c4732` |
 | ATLAS-TASK-0025 † | Living-document correction after broker adapter construction | ✅ Complete | `db92e7795055bc88f022c1a4b9932ef9fe586fe1` |
+| ATLAS-TASK-0026 † | Enforce the ADR-0016 broker startup validation boundary | ✅ Complete | `06418acf326a2c4f7964a8963ccfeae433c25db6` ‖ |
 
 † **Newly specified, not recovered.** The unmarked rows are evidenced by the
 repository record: the task existed, and the commit it cites is the work.
-ATLAS-TASK-0011 through ATLAS-TASK-0025 were each specified and authorised as
+ATLAS-TASK-0011 through ATLAS-TASK-0026 were each specified and authorised as
 new work during the task itself. Their presence in this table is not evidence
 that any was previously planned, and none may be described as recovered project
 history or as previously completed.
@@ -84,6 +85,31 @@ green in both jobs. The citation is left as the feature commit — the
 history is not rewritten — and the gap against the definition of **Complete**
 above is recorded here instead.
 
+‖ **A test control failed here, and the next commit closed it.**
+`06418acf326a2c4f7964a8963ccfeae433c25db6` is where ATLAS-TASK-0026's work lives
+and it is on `main`, which is why it is the commit cited. CI run 49 failed at
+one step, Pytest, on one test:
+`test_the_filesystem_patch_can_actually_intercept[absolute]`. That test is not a
+test of the validator. It is the control that proves the filesystem instrument
+of the no-I/O proof can fire at all, and it probed a path beginning with a
+slash — absolute under POSIX, relative under Windows, which is the mirror image
+of the portability example ADR-0016 `:93-97` gives for declining an absoluteness
+invariant. `Path.absolute()` returns `self` without consulting the working
+directory when the path is already absolute, so on Linux the control touched
+nothing and did not fire, while on the Windows host it had been written on it
+did. **No production code was implicated and none was changed.** The validator
+behaved identically on both platforms, every test of the invariants themselves
+passed on run 49, and the defect was confined to the probe path chosen for the
+control. `05421d5c0934413d314ce851c8ec451d3d79027c` dropped the leading slash and
+changed nothing else — one file, one line of test data and a comment saying why
+— and CI run 50 against it passed both jobs on Linux under Python 3.12.13 with
+coverage active: 3623 passed, 105 skipped, none of the skips in this task's
+tests. This is neither ‡'s flaky gate nor ¶'s deployment surface lagging behind
+correct application code; it is a defect in the task's own instrument, which
+failed in exactly the environment it was written to describe. The citation is
+left as the feature commit — the history is not rewritten — and the gap against
+the definition of **Complete** above is recorded here instead.
+
 ATLAS-TASK-0019 is complete, committed and pushed. `main` and `origin/main` are
 both `a634fa48`, the closeout commit for that task, so the push its entry below
 describes as the thing that closes its gap against **Complete** has happened;
@@ -121,6 +147,29 @@ for that decision, and `6f5eff81361e904b746a37a8c975683b138972e7` is the commit
 that implements it. As with ADR-0013 and ADR-0014, ADR-0015 has no row in that
 table and will not acquire one — a decision is not a task.
 
+**ADR-0016 is proposed, and ATLAS-TASK-0026 is implemented.** ADR-0016 —
+`docs/adr/0016-unusable-broker-configuration-refuses-startup.md`, indexed in
+`docs/adr/README.md` — decides that broker configuration which cannot open a
+session is refused where the session is assembled, and that the refusal is
+confined to properties holding independently of the machine validating them: an
+empty password and the not-configured terminal path are refused, and no other
+property of that path is checked. `docs/tasks/ATLAS-TASK-0026.md` is the
+implementation specification for that decision, and
+`06418acf326a2c4f7964a8963ccfeae433c25db6` is the commit that implements it. As
+with ADR-0013, ADR-0014 and ADR-0015, ADR-0016 has no row in that table and will
+not acquire one — a decision is not a task.
+
+**The word above is `Proposed`, not `Accepted`, and the difference is recorded
+rather than smoothed over.** Every other record in this sequence was accepted
+before the task implementing it was specified, and each paragraph above says so.
+ADR-0016 is the first that was implemented while still proposed. The authority
+for the work was the owner's decision to implement the record as written, which
+ATLAS-TASK-0026 §2.1 states in those terms rather than inferring it from a
+status the record does not carry; the task did not edit the record and did not
+advance it, and `docs/adr/README.md` lists it as `Proposed` today. Whether it is
+accepted is a step for the owner and not for this file, and nothing above is
+evidence that it has been taken.
+
 ATLAS-TASK-0020 does not decide the broker or venue configuration surface.
 ADR-0013 declined to, and the specification names the absence of that surface in
 `AtlasSettings` as the exact dependency blocking construction of a live adapter,
@@ -134,8 +183,10 @@ ATLAS-TASK-0024 carried that work into the deployment surface, and
 `2c4e7e8bdbf2839b11fe25e38b7b0d9bbd8c4732` is its implementation. It has no
 specification file; its row above was written all the same, as
 ATLAS-TASK-0018's was. ATLAS-TASK-0025 then corrected the living documents
-that construction left stale, and its row is the last one above. This file
-declares no ADR-0016 and no work after ATLAS-TASK-0025. The tasks above are
+that construction left stale. ADR-0016 exists, is indexed in
+`docs/adr/README.md`, and is implemented by ATLAS-TASK-0026, whose row is the
+last one above; it remains `Proposed`, which the ADR-0016 paragraph above
+records. This file declares no work after ATLAS-TASK-0026. The tasks above are
 the ones the repository itself declares; this file does not speculate past
 them.
 
@@ -1778,6 +1829,117 @@ and the row above records a task whose gates have passed locally and not yet in
 CI. That is a gap against the definition of **Complete** at the top of this
 file, of the kind ‡ records for ATLAS-TASK-0010, and like ATLAS-TASK-0019's it
 is closed by the push rather than by a correction here.
+
+### ATLAS-TASK-0026 — enforcing the ADR-0016 startup validation boundary
+
+Newly specified rather than recovered from the repository record — see the note
+marked † under the status table.
+
+A broker section that could not open a session already failed start-up for two
+of its four values; it now fails for all four. ADR-0016 decided that
+configuration which cannot open a session is refused where the session is
+assembled, and that the refusal is confined to properties holding independently
+of the machine doing the validating. This task added the two invariants that
+decision names and nothing else: `MT5Config.password` gained `min_length=1`, and
+`terminal_path` gained a validator that refuses the one value meaning nobody
+supplied one. Six files, 1645 insertions against 8 deletions — one source file,
+three test files, `.env.example`, and the specification itself.
+
+**The behavioural change is the decision rather than a side effect.** A
+deployment that sets `ATLAS_BROKER__LOGIN` and `ATLAS_BROKER__SERVER` and leaves
+the password empty or the terminal path unset starts today and stops starting on
+this commit. ADR-0016 `:227-230` names that cost in those terms and places the
+record of it in the roadmap at implementation, which is this paragraph. The
+deployments it stops are ones that could not have traded: they would have failed
+at the first `connect()` instead, which is the deferral ADR-0015 ruled against.
+
+**The empty password is refused in every environment.** An empty `SecretStr`
+authorises nothing, and the repository had already ruled on the identical type
+when `_enforce_production_invariants` refused an empty `postgres.password`. That
+reasoning was followed and its placement was not: the rule lives in `MT5Config`,
+beside the `gt=0` and `min_length=1` already there, because what opens a
+MetaTrader session is venue knowledge and ADR-0014 exists to keep it out of
+`atlas.config`. `_enforce_production_invariants` gained no broker clause, and
+the test asserting that a `production` process resolves its settings with the
+section entirely unset passes unmodified. The scope differs from the postgres
+precedent deliberately: there is no MetaTrader equivalent of a passwordless
+development database, so the password is refused everywhere `login` and `server`
+already are.
+
+**The terminal path is refused for being unset, and for nothing else.**
+`BrokerSettings.terminal_path` defaults to `Path()`, which is `.` — a directory,
+and the sentinel meaning nobody set it. That value is refused. Absoluteness,
+existence, executability, filesystem accessibility and platform validity are
+each declined as invariants, because each would make configuration validity a
+property of the host doing the validating rather than of the configuration, and
+the container this repository builds has no Windows terminal to find. A path
+that is well-formed, absolute and points at nothing still starts the process and
+still fails at `connect()`. That is not a gap left open by accident; it is what
+ADR-0016 chose over an invariant that cannot be stated portably, and a Windows
+path is accepted under POSIX semantics by a test that now runs on Linux in CI to
+prove no absoluteness requirement arrived by the back door.
+
+**Configuration validation performs no filesystem I/O, and it is proved twice
+rather than asserted.** One proof intercepts twelve filesystem entry points
+during validation and fails if any is reached; the other scans the model's
+source for eighteen call names the interception cannot see, such as `iterdir`
+and `glob`. Each has a control that deliberately trips it, because an instrument
+never shown to fire proves nothing — which the ‖ note above records the cost of
+learning. The two are complementary and neither is complete on its own: the
+runtime patch catches indirection the scanner cannot follow, the scanner catches
+calls the patch never wraps, and neither names `os.scandir`, `os.listdir` or
+`os.readlink`. The proof covers the calls it enumerates and the source it scans,
+which is what it claims and not more.
+
+**The failure is the one that already existed.** No error surface, exit code,
+stream or record was added. A rejected `MT5Config` raises `ValidationError`,
+`composition.py` narrows it to `ConfigurationError`, and `main()` reports one
+JSON object on stderr under `atlas.core.startup_failed` and exits `2` with
+stdout empty. Translation still precedes construction, so no adapter is built,
+no owner is created and no session is opened. No credential reaches either
+stream: `SecretStr` masks in Pydantic's error output, reporting
+`input_value=SecretStr('')` and never the value, and the startup record carries
+no broker key at all. Nothing about the run loop, the owner's lifecycle or
+supervision was decided, and `apps/` acquired no import and no line of diff.
+
+**ADR-0016 remains `Proposed`.** This task implemented a record that has not
+been accepted, on the owner's decision to implement it as written, and it
+neither edited the record nor advanced its status. `docs/adr/README.md` lists it
+as `Proposed` today. The ADR-0016 paragraph near the top of this file records
+that this is the first time the sequence has worked in that order.
+
+Two statements above become inaccurate on this commit, and both are left as
+written. The ATLAS-TASK-0022 entry says that a login of `0` and an empty server
+name "are the not-configured values"; there are four of them now, and its
+sentence is answered here rather than corrected there, as ATLAS-TASK-0019's,
+ATLAS-TASK-0020's, ATLAS-TASK-0021's and ATLAS-TASK-0022's entries have each
+been left. The remainder of that same passage is untouched by this task and
+stays true: `_enforce_production_invariants` still gained no broker clause. The
+ATLAS-TASK-0025 entry says that no ADR-0016 exists, and that the
+ATLAS-TASK-0023 §21.2 gap is open with `MT5Config` "still accepting an empty
+password and a bare `terminal_path`" while "closing it is a new invariant that
+needs a decision rather than a documentation task". Both were true when written;
+ADR-0016 is the decision that entry said the closure required, and this task is
+the closure. ATLAS-TASK-0026 §14 DOC-5 named the first of these in advance and
+§22 excluded the roadmap from the task, which is why it lands in this closeout.
+
+This task has three commits and reached `main` by direct commit rather than
+through a pull request, as ATLAS-TASK-0015 through ATLAS-TASK-0025 did, so there
+is no merge commit for the row above to cite.
+`06418acf326a2c4f7964a8963ccfeae433c25db6` carries the specification and the
+implementation together, which is what the row above cites;
+`05421d5c0934413d314ce851c8ec451d3d79027c` is the test-control correction the ‖
+note records; and this closeout is the third. No commit was amended. Unlike
+ATLAS-TASK-0019's entry and ATLAS-TASK-0025's, this one is written after CI has
+run: run 50 is green in both jobs on `05421d5`, on Linux under Python 3.12.13
+with coverage active, at 3623 passed and 105 skipped — every skip vendor-gated
+on the MetaTrader 5 wheel, none of them in this task's twenty-nine tests, which
+the run executed and passed. Locally: 3728 passed, 217 in the contract suite,
+Ruff, Black and MyPy `--strict` clean across 104 source files. The row above
+therefore has one gap of its own against the definition of **Complete** at the
+top of this file, the one ‖ records, and no other. No CI run exists against this
+closeout as it is written; it changes one documentation file, which no test
+reads.
 
 ## Known documentation debt
 
