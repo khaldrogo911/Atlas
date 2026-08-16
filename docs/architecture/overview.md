@@ -192,10 +192,15 @@ live process's import graph.
 
 At ATLAS-TASK-0001, `atlas-core` has no run loop. Its entrypoint today resolves
 configuration, enforces the environment's invariants, builds the broker adapter
-that configuration describes, emits a JSON startup record and exits — which is
-why `docker-compose.yml` gives it `restart: "no"`. A run that gets that far
-exits `0`; configuration it cannot resolve, or a broker section it cannot
-translate, leaves stdout empty and exits `2` instead.
+that configuration describes, opens a session with it, closes that session again
+and emits a JSON startup record before exiting — which is why
+`docker-compose.yml` gives it `restart: "no"`. ADR-0017 made opening the session
+the verification, which gives the process three outcomes rather than two. A run
+that gets all the way through exits `0`. Configuration it cannot resolve, or a
+broker section it cannot translate, leaves stdout empty and exits `2`. A
+configuration that was usable and a session that would not open leaves stdout
+empty and exits `3` — which is what every Linux host does, the MetaTrader 5
+package having no wheel there to reach a terminal with.
 
 ## Persistence
 

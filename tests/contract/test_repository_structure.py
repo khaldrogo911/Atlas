@@ -142,11 +142,20 @@ BROKER_VARIABLES = (
 )
 
 
-#: Names of the two steps that run the built image. Read by step rather than by
-#: whole file: both pass ``ATLAS_BROKER__PASSWORD``, so a file-wide search cannot
-#: tell which one dropped a value.
-CONFIGURED_STEP = "Run the image configuration self-check"
+#: Names of the three steps that run the built image. Read by step rather than
+#: by whole file: all three pass ``ATLAS_BROKER__PASSWORD``, so a file-wide
+#: search cannot tell which one dropped a value.
+#:
+#: ``RECORD_STEP`` exists because ADR-0017 moved the startup record out of the
+#: reach of a Linux container: the configured check now ends at a session it
+#: cannot open. The record's shape is still proved in the image, one step short
+#: of the venue.
+CONFIGURED_STEP = "Run the image start-up check with broker configuration"
+RECORD_STEP = "Verify the image still builds its startup record"
 UNCONFIGURED_STEP = "Run the image self-check without broker configuration"
+
+#: The two steps that hand the image a complete broker section.
+CONFIGURED_STEPS = (CONFIGURED_STEP, RECORD_STEP)
 
 
 def _declared_in_workflow(variable: str) -> str:
@@ -332,10 +341,15 @@ class TestBrokerConfigurationIsADeploymentFact:
         live = re.compile(rf"^\s*{re.escape(variable)}=(.*)$", re.MULTILINE)
         assert not live.findall(ENV_TEMPLATE.read_text(encoding="utf-8"))
 
+    @pytest.mark.parametrize("step_name", CONFIGURED_STEPS)
     @pytest.mark.parametrize("variable", BROKER_VARIABLES)
-    def test_ci_hands_the_variable_to_the_configured_self_check(self, variable: str) -> None:
-        step = _workflow_step(CONFIGURED_STEP)
-        assert f"-e {variable}" in step, f"the self-check does not pass {variable}"
+    def test_ci_hands_the_variable_to_every_configured_check(
+        self, variable: str, step_name: str
+    ) -> None:
+        # Both steps assert that a value did not leak, and an assertion that a
+        # withheld value is absent proves nothing at all.
+        step = _workflow_step(step_name)
+        assert f"-e {variable}" in step, f"{step_name!r} does not pass {variable}"
 
     @pytest.mark.parametrize("variable", ["LOGIN", "SERVER", "TERMINAL_PATH"])
     def test_ci_withholds_the_variable_from_the_unconfigured_check(self, variable: str) -> None:
@@ -353,8 +367,33 @@ class TestBrokerConfigurationIsADeploymentFact:
     def test_the_ci_login_would_survive_the_validation_it_already_faces(self) -> None:
         assert int(_declared_in_workflow("ATLAS_BROKER__LOGIN")) > 0
 
-    def test_ci_proves_a_configured_container_reaches_its_startup_record(self) -> None:
-        assert '"atlas.core.startup"' in _workflow_step(CONFIGURED_STEP)
+    def test_ci_proves_a_configured_container_reports_the_session_it_cannot_open(
+        self,
+    ) -> None:
+        # ADR-0017: a configured container on Linux gets as far as the venue and
+        # no further. The whole outcome is pinned — the code, the event, and the
+        # silence on stdout — because a step that only awaited an exit code
+        # would pass just as happily on the wrong failure.
+        step = _workflow_step(CONFIGURED_STEP)
+        assert '"atlas.core.broker_connect_failed"' in step
+        assert "status != 3" in step
+        assert "wrote to stdout" in step
+
+    def test_ci_proves_a_configured_container_leaks_no_credential(self) -> None:
+        # The step reads both streams, so the check has to be shown to cover
+        # both; asserting it against stdout alone would test an empty string.
+        step = _workflow_step(CONFIGURED_STEP)
+        assert 'os.environ["ATLAS_BROKER__PASSWORD"] in out + err' in step
+
+    def test_ci_still_proves_the_startup_record_inside_the_image(self) -> None:
+        # ADR-0017 stopped the entrypoint short of this record on Linux; it did
+        # not retire the record. The eight keys and the absence of every broker
+        # value stay proved in the image that ships them.
+        step = _workflow_step(RECORD_STEP)
+        assert '"atlas.core.startup"' in step
+        assert "build_startup_record" in step
+        assert "the startup record's keys changed" in step
+        assert "the startup record carried" in step
 
     def test_ci_proves_an_unconfigured_container_refuses_to_start(self) -> None:
         # The refusal ADR-0015 decided is observed rather than assumed.

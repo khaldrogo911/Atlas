@@ -79,11 +79,18 @@ services:
     # source of truth. A contract test enforces this; do not edit one alone.
     image: atlas/atlas-core:0.2.0a0
     container_name: atlas-core
-    # Deliberate: a configured atlas-core currently performs a configuration
-    # self-check and exits 0. A restarting policy would turn a clean exit into a
-    # crash loop — and, since ATLAS-TASK-0023, would also retry a broker
-    # configuration that cannot open a session, which no amount of restarting
-    # fixes. This becomes "unless-stopped" once the service acquires a run loop.
+    # Deliberate: a configured atlas-core performs a start-up connectivity check
+    # and exits — 0 once it has opened a broker session and closed it again, 3
+    # when it could not open one, 2 when the configuration was unusable. A
+    # restarting policy would turn a clean exit into a crash loop, and would
+    # retry both a broker configuration that cannot open a session and a venue
+    # that is simply unreachable, neither of which restarting fixes. ADR-0017
+    # decided this process has no run loop; this becomes "unless-stopped" only
+    # if some later record gives it one.
+    #
+    # In this image the check cannot reach a venue at all: MetaTrader5 publishes
+    # Windows wheels only, so `docker compose up atlas-core` exits 3 by design.
+    # The runbook covers what that means and what it does not.
     restart: "no"
     depends_on:
       postgres:

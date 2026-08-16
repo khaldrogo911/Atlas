@@ -9,10 +9,13 @@ information anyone will ever have about the requirements.
 The unit of deployment is a **container image**, built by the root `Dockerfile`:
 multi-stage, non-root (uid 1000), carrying only the virtual environment and
 application source. That much is platform-independent and already validated in
-CI, which builds the image on every merge and runs its configuration self-check
-twice: once with throwaway broker configuration, which must exit `0`, and once
-without, which must exit `2`. A platform that cannot deliver the four
-`ATLAS_BROKER__*` values to the process therefore cannot run this image.
+CI, which builds the image on every merge and runs its start-up check twice:
+once with throwaway broker configuration, which must exit `3` — since ADR-0017
+the check opens a session, and a Linux image has no MetaTrader 5 terminal to
+open one against — and once without it, which must exit `2` before it ever gets
+that far. A platform that cannot deliver the four `ATLAS_BROKER__*` values to
+the process therefore cannot run this image, and a Linux platform cannot
+complete the check at all.
 
 ## What is not settled
 

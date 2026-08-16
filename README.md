@@ -301,11 +301,17 @@ poetry run atlas-core
 
 `atlas-core` resolves configuration from every layer, enforces the active
 environment's invariants, builds the trading adapter its broker section
-describes, writes a JSON startup record to stdout, and exits `0`. It exits `2`
-with a diagnostic on stderr if configuration is invalid. Until the trading
-pipeline exists, this is the whole of the core service, and it is genuinely
-useful: it is the fastest way to prove a deployment's configuration resolves the
-way you think it does.
+describes, opens a session with it, closes that session again, writes a JSON
+startup record to stdout, and exits `0`. It exits `2` with a diagnostic on
+stderr if configuration is invalid, and `3` if the configuration was usable and
+the session would not open. Until the trading pipeline exists, this is the whole
+of the core service, and it is genuinely useful: it is the fastest way to prove
+a deployment's configuration resolves the way you think it does and — since
+ADR-0017 — that the venue it names will accept a session.
+
+Exit `3` is the ordinary outcome away from Windows. MetaTrader5 publishes
+Windows wheels only, so on Linux and macOS there is no terminal to open a
+session against and the check says so rather than passing on a technicality.
 
 Since ATLAS-TASK-0023 that includes the broker section, so the four
 `ATLAS_BROKER__*` values must be present — in `.env` or the environment — before
@@ -375,10 +381,13 @@ Services:
 | `atlas-core` | built from `Dockerfile` | waits for both datastores to report healthy |
 
 `atlas-core` uses `restart: "no"` deliberately. Configured, it performs a
-configuration self-check and exits `0`; a restart policy that resurrects a
-cleanly-exited container would produce an infinite loop. Misconfigured, it exits
-`2`, and restarting would only repeat a failure that no retry can fix. It becomes
-`unless-stopped` when the service acquires a run loop.
+start-up connectivity check and exits — `0` once it has opened a broker session
+and closed it again; a restart policy that resurrects a cleanly-exited container
+would produce an infinite loop. Misconfigured, it exits `2`, and restarting
+would only repeat a failure that no retry can fix. Configured but unable to open
+a session, it exits `3`, which is what this Linux image always does and what no
+number of restarts can change. It becomes `unless-stopped` when the service
+acquires a run loop.
 
 The image is a multi-stage build: dependencies are resolved in a builder stage
 and only the virtual environment and application source are copied into a slim

@@ -17,10 +17,21 @@ cp .env.example .env          # once; then fill in POSTGRES_PASSWORD and the
 docker compose config         # validate before starting anything
 docker compose up -d postgres redis
 docker compose ps             # both must report (healthy)
-docker compose up atlas-core  # runs the config self-check, then exits 0
+docker compose up atlas-core  # runs the start-up check; see the note below on 3
 ```
 
-Expected `atlas-core` output — one JSON line, exit code `0`:
+Since ADR-0017 the check opens a broker session, verifies it opened, closes it
+again and exits. Exit `0` therefore means a session was established, not merely
+that the settings describing one resolved.
+
+**In the container it exits `3`, and that is expected.** MetaTrader5 publishes
+Windows wheels only, so the Linux image has no venue to reach and the session
+can never open there. What the container still proves is everything up to that
+point: settings resolve, the invariants hold, and the broker section translates
+into an adapter. Run it on a Windows host with a reachable terminal to see `0`.
+
+Expected `atlas-core` output on a host that can reach its venue — one JSON line
+on stdout, exit code `0`:
 
 ```json
 {"event":"atlas.core.startup","app_name":"atlas-core","environment":"development", ...}
@@ -78,7 +89,31 @@ Reproduce outside the container, which is faster:
 ATLAS_ENV=development poetry run atlas-core
 ```
 
-### 3. Configuration is not what you expect
+### 3. `atlas-core` exits `3`
+
+The configuration was usable and the session still would not open. Reported as
+one JSON object on **stderr**, under its own event so that it cannot be mistaken
+for a configuration failure:
+
+```json
+{"event":"atlas.core.broker_connect_failed","error":"could not initialise the terminal: ..."}
+```
+
+Exit `2` says "edit the configuration". Exit `3` says the configuration was
+fine and the venue was not, which no edit to a settings file resolves.
+
+| Cause | Resolution |
+|---|---|
+| Running in the Linux image or on any non-Windows host | Expected, not a fault: MetaTrader5 has no wheel for the platform. Run on Windows to exercise the session |
+| `terminal_path` points at no terminal | Correct `ATLAS_BROKER__TERMINAL_PATH`; it must name `terminal64.exe` itself |
+| Terminal installed but not permitted to start | Start it once by hand, accept any first-run prompt, then retry |
+| `login`, `password` or `server` rejected by the venue | Confirm them in the terminal itself; the account must exist on that exact server name |
+| The venue is unreachable or the account is not available | Retry later; nothing in this process retries for you, by design |
+
+The `error` field may name the account number, because the terminal's own
+message does. It never carries the password.
+
+### 4. Configuration is not what you expect
 
 `ATLAS_ENV` selects the layer and is read **before** the settings model is
 built. If it is set only in `.env`, the layer will not be selected.
@@ -91,7 +126,7 @@ docker compose exec atlas-core env | grep ATLAS_    # inside the container
 Confirm the resolved values by reading the startup record — it reports the
 effective environment, log level, and masked connection strings.
 
-### 4. A datastore never reports healthy
+### 5. A datastore never reports healthy
 
 ```bash
 docker compose ps
@@ -105,7 +140,7 @@ docker compose logs redis
 | Password changed after first start | The volume keeps the original credentials: `docker compose down -v` **destroys local data** and re-initialises |
 | Init SQL failed | `docker compose logs postgres`; scripts in `infrastructure/database/init/` run **only** on an empty data volume |
 
-### 5. Imports fail outside Docker
+### 6. Imports fail outside Docker
 
 ```
 ModuleNotFoundError: No module named 'atlas.config'

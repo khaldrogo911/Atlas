@@ -44,11 +44,19 @@ Two constraints worth knowing before editing it:
 | `redis` | `unless-stopped` | `redis-cli ping` |
 | `atlas-core` | `no` | none |
 
-`atlas-core` deviates deliberately. Configured, it performs a configuration
-self-check and exits `0`; a restart policy would turn a clean exit into a crash
-loop, and a health check has nothing to poll. Both change when the service
-acquires a run loop.
+`atlas-core` deviates deliberately. Configured, it performs a start-up
+connectivity check and exits — `0` once a broker session has been opened and
+closed again; a restart policy would turn a clean exit into a crash loop, and a
+health check has nothing to poll, because the process holds no session once it
+returns. Both change when the service acquires a run loop.
 
-Since ATLAS-TASK-0023 that self-check includes building the trading adapter, so
-the compose service requires the four `ATLAS_BROKER__*` values and fails closed
-on a missing one rather than defaulting. A container without them exits `2`.
+Since ATLAS-TASK-0023 that check includes building the trading adapter, so the
+compose service requires the four `ATLAS_BROKER__*` values and fails closed on a
+missing one rather than defaulting. A container without them exits `2`.
+
+Since ADR-0017 the check also opens the session those four values describe, and
+this image cannot open one: MetaTrader5 publishes Windows wheels only, so a
+fully configured container exits `3` here by design. Everything before the
+session is still proved — settings resolve, the invariants hold, the broker
+section translates into an adapter — and the session itself is proved on a
+Windows host or not at all.

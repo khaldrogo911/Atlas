@@ -1,35 +1,40 @@
-"""Structural tests for the two edges `apps/atlas-core` has to the broker.
+"""Structural tests for the three edges `apps/atlas-core` has to the broker.
 
 ADR-0013 puts the `BrokerAdapter` in `apps/atlas-core`, which made
 `apps/atlas-core -> atlas.broker` the first edge from an application to the
 port. ADR-0015 added the second: `composition.py` reaches past the port to the
 implementation it selected, in order to translate settings into it and build
-one. These tests hold both edges to the shape their decisions gave them: the
-port is imported by the module that owns an adapter, the implementation is named
-by the module that constructs one, and holding an adapter still did not turn
-into supervising it or trading through it.
+one. ADR-0017 added the third: start-up opens a session and reports whether it
+opened, so `__main__.py` names the one error it has to handle. These tests hold
+all three edges to the shape their decisions gave them: the port is imported by
+the module that owns an adapter and by the one that reports a failure to reach
+a venue, the implementation is named by the module that constructs one, and
+holding an adapter still did not turn into supervising it or trading through it.
 
 **This file is not an `apps/` import rule, and must not become one.** The four
 package boundary tests each hold a closed `PERMITTED_ATLAS_PACKAGES` tuple — a
 positive statement of everything that package may import. There is no such tuple
-here. Exactly one permission is stated below, it is named, and it is traceable:
+here. Exactly two permissions are stated below, both named and both traceable:
 ADR-0015 selected `MT5BrokerAdapter`, and one module may name that
 implementation and its configuration type for the one purpose the record gave
-it. It extends to no other module, to no other implementation, and to no claim
-about what an application may import in general. That general rule is still
-undecided — ADR-0013 `:242-249` records that it creates and implies none, and
-ADR-0015 leaves it exactly there. It would begin with a decision record rather
-than with a test file, which is precisely how the one permission here began.
+it; ADR-0017 decided that start-up reports a session it could not open, and one
+module may name `BrokerError` for that. Each extends to no other module, to no
+other name, and to no claim about what an application may import in general.
+That general rule is still undecided — ADR-0013 `:242-249` records that it
+creates and implies none, and ADR-0015 leaves it exactly there. It would begin
+with a decision record rather than with a test file, which is precisely how both
+permissions here began.
 
 Every other assertion is a property some accepted decision creates: ADR-0006's
 abstraction, ADR-0013's single owner, downward-granted access and exclusion of
-supervision, and ADR-0015's bounded selection.
+supervision, ADR-0015's bounded selection, and ADR-0017's bounded error handling.
 
 What these tests deliberately do **not** claim
     That the adapter is used correctly. ATLAS-TASK-0023 builds one and hands it
-    to an owner; nothing starts that owner, and nothing consumes what it holds.
+    to an owner, and ADR-0017 has start-up open a session and close it again;
+    nothing supervises that session, and nothing consumes what the owner holds.
     What is asserted here is the shape of the seam, not traffic across it —
-    there is still none.
+    there is still none beyond connecting and disconnecting.
 """
 
 from __future__ import annotations
@@ -61,8 +66,20 @@ OWNERSHIP_MODULE: Final = CORE_SRC / "atlas" / "apps" / "core" / "broker_ownersh
 #: The module ATLAS-TASK-0023 adds, and the sole holder of ADR-0015's permission.
 COMPOSITION_MODULE: Final = CORE_SRC / "atlas" / "apps" / "core" / "composition.py"
 
+#: The process entrypoint, and the sole holder of ADR-0017's permission.
+ENTRYPOINT_MODULE: Final = CORE_SRC / "atlas" / "apps" / "core" / "__main__.py"
+
 #: The abstraction the edge exists for.
 ADAPTER: Final = "BrokerAdapter"
+
+#: The one name ADR-0017 permits :data:`ENTRYPOINT_MODULE` to take from the port.
+#:
+#: Start-up opens a session, reports whether it opened and exits, so the
+#: entrypoint has to name the failure it reports. It is the port's root error and
+#: nothing else — not the abstraction, not the refusal, and not an
+#: implementation. A wider grant would be the entrypoint acquiring an adapter
+#: rather than reporting on one, which is the property T-12 exists to hold.
+HANDLED_PORT_ERROR: Final = "BrokerError"
 
 #: Packages `apps/atlas-core` does not reach, and why each would be wrong.
 #:
@@ -300,6 +317,11 @@ class TestTheScannersWork:
         assert OWNERSHIP_MODULE in CORE_SOURCES
         assert OWNERSHIP_MODULE in APP_SOURCES
 
+    def test_the_entrypoint_module_is_among_the_scanned_files(self) -> None:
+        assert ENTRYPOINT_MODULE.is_file()
+        assert ENTRYPOINT_MODULE in CORE_SOURCES
+        assert ENTRYPOINT_MODULE in APP_SOURCES
+
     def test_the_import_scanner_finds_the_edge_this_task_creates(self) -> None:
         found = set(_atlas_imports(_source_of(OWNERSHIP_MODULE)))
 
@@ -388,12 +410,20 @@ class TestTheScannersFireOnMutatedRealSource:
         assert _module_level_bindings_naming(mutated, ADAPTER) != []
 
     def test_a_guarded_port_import_is_caught_in_a_module_that_has_none(self) -> None:
-        """`if TYPE_CHECKING:` is not a hiding place, asserted against real source."""
-        entrypoint = CORE_SRC / "atlas" / "apps" / "core" / "__main__.py"
-        mutated = _with_line(
-            _source_of(entrypoint),
-            f"if TYPE_CHECKING:\n    from atlas.broker import {ADAPTER}",
-        )
+        """`if TYPE_CHECKING:` is not a hiding place, asserted against real source.
+
+        Written against the package's own `__init__.py`, which imports nothing.
+        The entrypoint used to serve here and no longer can: ADR-0017 gave it a
+        port import of its own, which would leave the second assertion true
+        before the mutation as well as after it. The precondition is asserted
+        rather than assumed, so a control that has stopped controlling anything
+        fails here instead of passing quietly.
+        """
+        importless = CORE_SRC / "atlas" / "apps" / "core" / "__init__.py"
+        source = _source_of(importless)
+        assert "atlas.broker" not in set(_atlas_imports(source))
+
+        mutated = _with_line(source, f"if TYPE_CHECKING:\n    from atlas.broker import {ADAPTER}")
 
         assert ADAPTER in _referenced_names(mutated)
         assert "atlas.broker" in set(_atlas_imports(mutated))
@@ -411,15 +441,21 @@ class TestTheOwnerIsNotWiredToAPipeline:
         assert not any(_is_within(module, package) for module in imported), imported
 
 
-class TestExactlyOneModuleReachesThePort:
-    def test_one_module_imports_the_port_and_it_is_the_ownership_module(self) -> None:
-        """T-11: the edge ADR-0013 authorises exists once, where the owner lives.
+class TestThePortIsImportedOnlyWhereAuthorised:
+    def test_two_modules_import_the_port_and_both_are_named(self) -> None:
+        """T-11: the port itself is imported to own an adapter and to report on one.
 
-        The port is `atlas.broker` itself. ADR-0015 added a second module that
-        reaches *into* that package, for `atlas.broker.mt5` and for nothing that
-        the port declares, so this assertion is written against the exact module
+        The port is `atlas.broker` itself. ADR-0015 added a module that reaches
+        *into* that package, for `atlas.broker.mt5` and for nothing that the
+        port declares, so this assertion is written against the exact module
         rather than against everything beneath it. What reaches beneath it is
-        asserted separately, by name, and is two.
+        asserted separately, by name, and is three.
+
+        ADR-0013's edge is still the only one that exists in order to *hold* an
+        adapter. ADR-0017 added the second importer of the port for a different
+        reason: start-up opens a session and reports whether it opened, which
+        means naming the error it reports. That is the whole of the grant, and
+        the assertion below pins it to one name.
         """
         importers = {
             _app_id(path)
@@ -427,7 +463,7 @@ class TestExactlyOneModuleReachesThePort:
             if "atlas.broker" in set(_atlas_imports(_source_of(path)))
         }
 
-        assert importers == {_app_id(OWNERSHIP_MODULE)}
+        assert importers == {_app_id(OWNERSHIP_MODULE), _app_id(ENTRYPOINT_MODULE)}
 
     def test_one_module_names_the_abstraction_and_it_is_the_same_one(self) -> None:
         """T-12: across every application, not merely across the one that owns it."""
@@ -443,6 +479,36 @@ class TestExactlyOneModuleReachesThePort:
 
         assert taken == {ADAPTER, "BrokerNotConnectedError"}
 
+    def test_the_entrypoint_takes_one_name_from_the_port_and_it_is_the_error(self) -> None:
+        """ADR-0017's grant, bounded to the failure it exists to report.
+
+        The entrypoint handles a session that would not open. It does not hold
+        an adapter, refuse access to one, or name an implementation, so one name
+        is all its edge is for. This is what fails if the entrypoint's import is
+        ever widened to carry the abstraction across as well.
+        """
+        taken = set(_broker_names(_source_of(ENTRYPOINT_MODULE)))
+
+        assert taken == {HANDLED_PORT_ERROR}
+
+    def test_the_entrypoint_grant_does_not_extend_to_the_owners_names(self) -> None:
+        """Two modules import the port; they are not interchangeable.
+
+        Stated positively so that the boundary cannot be satisfied by a module
+        that imports the port for one reason and then uses it for the other.
+        """
+        taken = set(_broker_names(_source_of(ENTRYPOINT_MODULE)))
+
+        assert ADAPTER not in taken
+        assert "BrokerNotConnectedError" not in taken
+        assert HANDLED_PORT_ERROR not in set(_broker_names(_source_of(OWNERSHIP_MODULE)))
+
+    def test_the_entrypoint_grant_rule_can_actually_fire(self) -> None:
+        """A widened entrypoint import is caught, asserted on real source."""
+        mutated = _with_line(_source_of(ENTRYPOINT_MODULE), f"from atlas.broker import {ADAPTER}")
+
+        assert set(_broker_names(mutated)) == {HANDLED_PORT_ERROR, ADAPTER}
+
 
 class TestTheCompositionModuleIsTheAuthorisedEdge:
     """The positive half of ADR-0015's permission: it exists, and it is one.
@@ -457,8 +523,12 @@ class TestTheCompositionModuleIsTheAuthorisedEdge:
         assert COMPOSITION_MODULE in CORE_SOURCES
         assert COMPOSITION_MODULE in APP_SOURCES
 
-    def test_two_modules_reach_the_broker_package_and_both_are_named(self) -> None:
-        """Owning the port and constructing an implementation are the only reasons."""
+    def test_three_modules_reach_the_broker_package_and_all_are_named(self) -> None:
+        """Owning the port, constructing an implementation, reporting a failure.
+
+        Those are the three reasons any accepted record gives, each granted to
+        one named module. A fourth reacher is a decision nobody has recorded.
+        """
         reachers = {
             _app_id(path)
             for path in APP_SOURCES
@@ -467,7 +537,11 @@ class TestTheCompositionModuleIsTheAuthorisedEdge:
             )
         }
 
-        assert reachers == {_app_id(OWNERSHIP_MODULE), _app_id(COMPOSITION_MODULE)}
+        assert reachers == {
+            _app_id(OWNERSHIP_MODULE),
+            _app_id(COMPOSITION_MODULE),
+            _app_id(ENTRYPOINT_MODULE),
+        }
 
     def test_the_composition_module_takes_only_the_selected_implementation(self) -> None:
         """The edge is used for translation and construction, and nothing else."""
@@ -519,7 +593,7 @@ class TestTheCompositionModuleIsTheAuthorisedEdge:
     def test_the_composition_edge_rule_can_actually_fire(self) -> None:
         """A second module taking the same reach is caught, asserted on real source."""
         mutated = _with_line(
-            _source_of(CORE_SRC / "atlas" / "apps" / "core" / "__main__.py"),
+            _source_of(ENTRYPOINT_MODULE),
             "from atlas.broker.mt5 import MT5BrokerAdapter",
         )
 
@@ -599,13 +673,15 @@ class TestThisFileIsNotAnApplicationImportRule:
 
         assert not [name for name in bound if name.startswith("PERMITTED")], bound
 
-    def test_this_file_states_one_bounded_permission_and_nothing_wider(self) -> None:
-        """Every constant here is an exclusion, a scanning aid, or the one grant.
+    def test_this_file_states_two_bounded_permissions_and_nothing_wider(self) -> None:
+        """Every constant here is an exclusion, a scanning aid, or one of two grants.
 
-        The grant is :data:`SELECTED_IMPLEMENTATION_NAMES`, bounded by
+        The first grant is :data:`SELECTED_IMPLEMENTATION_NAMES`, bounded by
         :data:`COMPOSITION_MODULE`: one implementation, one module, one record.
-        Pinning the whole set is what makes a wider one impossible to add
-        quietly — a new constant fails here before it can permit anything.
+        The second is :data:`HANDLED_PORT_ERROR`, bounded by
+        :data:`ENTRYPOINT_MODULE`: one name, one module, one record. Pinning the
+        whole set is what makes a wider grant impossible to add quietly — a new
+        constant fails here before it can permit anything.
         """
         bound = _assigned_at_module_scope(_source_of(Path(__file__).resolve()))
 
@@ -617,7 +693,9 @@ class TestThisFileIsNotAnApplicationImportRule:
             "CORE_SOURCES",
             "OWNERSHIP_MODULE",
             "COMPOSITION_MODULE",
+            "ENTRYPOINT_MODULE",
             "ADAPTER",
+            "HANDLED_PORT_ERROR",
             "PIPELINE_PACKAGES",
             "CONCRETE_ADAPTER_PACKAGES",
             "SELECTED_IMPLEMENTATION_NAMES",

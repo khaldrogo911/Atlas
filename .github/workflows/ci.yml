@@ -124,25 +124,94 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # The entrypoint is a configuration self-check. Running it proves the
-      # image can resolve settings, that its invariants hold, and — since
-      # ATLAS-TASK-0023 — that the broker section it was given translates into
-      # an adapter the process can construct.
+      # The entrypoint is a start-up check. Running it proves the image can
+      # resolve settings, that its invariants hold, that the broker section it
+      # was given translates into an adapter — and, since ADR-0017, that the
+      # process goes on to open the session that adapter describes.
       #
-      # The record is parsed rather than merely awaited, because the two things
-      # most worth knowing about it are not visible in an exit code: that it
-      # still carries the eight keys ATLAS-TASK-0001 defined, and that none of
-      # the broker configuration reached it.
-      - name: Run the image configuration self-check
+      # It cannot open one here, and that is the point. MetaTrader5 publishes
+      # Windows wheels only, so `pyproject.toml` marks it `sys_platform ==
+      # "win32"` and this Linux image has no terminal to reach. A fully
+      # configured container therefore exits 3 by design, and exit 3 is the
+      # furthest a Linux runner can observe: everything up to the venue is
+      # proved here, and the session itself is proved on a Windows host or not
+      # at all. An exit 0 from this step would mean the entrypoint stopped
+      # opening a session, not that CI found a broker.
+      #
+      # The streams are captured apart rather than merged, because "stdout
+      # stayed empty" is half of what this step exists to show and merging them
+      # would destroy the evidence for it.
+      - name: Run the image start-up check with broker configuration
         run: |
-          record=$(docker run --rm \
+          status=0
+          docker run --rm \
             -e ATLAS_ENV=development \
             -e ATLAS_POSTGRES__PASSWORD=ci-throwaway \
             -e ATLAS_BROKER__LOGIN \
             -e ATLAS_BROKER__PASSWORD \
             -e ATLAS_BROKER__SERVER \
             -e ATLAS_BROKER__TERMINAL_PATH \
-            atlas/atlas-core:ci)
+            atlas/atlas-core:ci >configured.out 2>configured.err || status=$?
+          STATUS="$status" python3 - <<'PY'
+          import json
+          import os
+          import pathlib
+
+          out = pathlib.Path("configured.out").read_text()
+          err = pathlib.Path("configured.err").read_text()
+
+          # Checked before either stream is echoed, so a leak is never printed.
+          # The password is the one value with no licence to appear anywhere:
+          # ADR-0017 allows the `error` field to name the account, because the
+          # terminal's own message does, and stdout is proved empty below, which
+          # covers the remaining two on the only stream that could carry them.
+          if os.environ["ATLAS_BROKER__PASSWORD"] in out + err:
+              raise SystemExit("the refused session leaked the broker password")
+
+          status = int(os.environ["STATUS"])
+          if status != 3:
+              raise SystemExit(f"expected exit 3, got {status}: {err}")
+
+          if out.strip():
+              raise SystemExit(f"a refused session wrote to stdout: {out!r}")
+
+          lines = [line for line in err.splitlines() if line.strip()]
+          if len(lines) != 1:
+              raise SystemExit(f"expected one failure record, got {len(lines)}")
+
+          record = json.loads(lines[0])
+          if record["event"] != "atlas.core.broker_connect_failed":
+              raise SystemExit(f"unexpected event: {record['event']!r}")
+
+          print(lines[0])
+          PY
+
+      # Until ADR-0017 the step above ended at the startup record and checked
+      # the two things about it an exit code cannot show: that it still carries
+      # the eight keys ATLAS-TASK-0001 defined, and that none of the broker
+      # configuration reached it. A container that now stops at the venue can
+      # never emit that record, so the check is kept here rather than dropped —
+      # same image, same configured environment, same public function the
+      # entrypoint calls, one step short of the session it cannot open.
+      - name: Verify the image still builds its startup record
+        run: |
+          record=$(docker run --rm -i \
+            -e ATLAS_ENV=development \
+            -e ATLAS_POSTGRES__PASSWORD=ci-throwaway \
+            -e ATLAS_BROKER__LOGIN \
+            -e ATLAS_BROKER__PASSWORD \
+            -e ATLAS_BROKER__SERVER \
+            -e ATLAS_BROKER__TERMINAL_PATH \
+            --entrypoint python \
+            atlas/atlas-core:ci - <<'IMAGE'
+          import json
+
+          from atlas.apps.core.__main__ import build_startup_record
+          from atlas.config import load_settings
+
+          print(json.dumps(build_startup_record(load_settings())))
+          IMAGE
+          )
           RECORD="$record" python3 - <<'PY'
           import json
           import os
