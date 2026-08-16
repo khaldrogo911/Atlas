@@ -38,10 +38,12 @@ and in package documentation. This file is where they resolve to a status.
 | ATLAS-TASK-0024 † | CI Container Self-Check After Broker Startup Construction | ✅ Complete | `2c4e7e8bdbf2839b11fe25e38b7b0d9bbd8c4732` |
 | ATLAS-TASK-0025 † | Living-document correction after broker adapter construction | ✅ Complete | `db92e7795055bc88f022c1a4b9932ef9fe586fe1` |
 | ATLAS-TASK-0026 † | Enforce the ADR-0016 broker startup validation boundary | ✅ Complete | `06418acf326a2c4f7964a8963ccfeae433c25db6` ‖ |
+| ATLAS-TASK-0027 † | Execute broker lifecycle during startup | ✅ Complete | `c5500dc58186dded011b52d62b227bd8d9e96872` |
+| ATLAS-TASK-0028 † | Strengthen CI container startup/refusal contracts | ✅ Complete | `c5500dc58186dded011b52d62b227bd8d9e96872` |
 
 † **Newly specified, not recovered.** The unmarked rows are evidenced by the
 repository record: the task existed, and the commit it cites is the work.
-ATLAS-TASK-0011 through ATLAS-TASK-0026 were each specified and authorised as
+ATLAS-TASK-0011 through ATLAS-TASK-0028 were each specified and authorised as
 new work during the task itself. Their presence in this table is not evidence
 that any was previously planned, and none may be described as recovered project
 history or as previously completed.
@@ -159,16 +161,41 @@ implementation specification for that decision, and
 with ADR-0013, ADR-0014 and ADR-0015, ADR-0016 has no row in that table and will
 not acquire one — a decision is not a task.
 
-**The word above is `Proposed`, not `Accepted`, and the difference is recorded
-rather than smoothed over.** Every other record in this sequence was accepted
-before the task implementing it was specified, and each paragraph above says so.
-ADR-0016 is the first that was implemented while still proposed. The authority
-for the work was the owner's decision to implement the record as written, which
-ATLAS-TASK-0026 §2.1 states in those terms rather than inferring it from a
-status the record does not carry; the task did not edit the record and did not
-advance it, and `docs/adr/README.md` lists it as `Proposed` today. Whether it is
-accepted is a step for the owner and not for this file, and nothing above is
-evidence that it has been taken.
+**ADR-0017 is proposed, and ATLAS-TASK-0027 is implemented.** ADR-0017 —
+`docs/adr/0017-startup-opens-a-session-and-closes-it.md`, indexed in
+`docs/adr/README.md` — decides that start-up opens the session the constructed
+adapter describes, verifies it by opening it, and closes it again before the
+process ends, and that `atlas-core` is therefore not a long-running process.
+It has no specification file: the work was authorised in session and implemented
+directly, so there is no `docs/tasks/ATLAS-TASK-0027.md`, and
+`c5500dc58186dded011b52d62b227bd8d9e96872` is the commit that implements it. The
+record itself was committed first, in
+`f98b41ea2cb59d54980a1867a755c01ef8980937`, before any code was written against
+it. As with ADR-0013, ADR-0014, ADR-0015 and ADR-0016, ADR-0017 has no row in
+that table and will not acquire one — a decision is not a task.
+
+**The word in the two paragraphs above is `Proposed`, not `Accepted`, and the
+difference is recorded rather than smoothed over.** ADR-0013, ADR-0014 and
+ADR-0015 were each accepted before the task implementing it was specified, and
+each paragraph above says so. ADR-0016 is the first that was implemented while
+still proposed. The authority for the work was the owner's decision to implement
+the record as written, which ATLAS-TASK-0026 §2.1 states in those terms rather
+than inferring it from a status the record does not carry; the task did not edit
+the record and did not advance it, and `docs/adr/README.md` lists it as
+`Proposed` today. Whether it is accepted is a step for the owner and not for
+this file, and nothing above is evidence that it has been taken.
+
+**ADR-0017 is the second instance of exactly that situation, and it is recorded
+the same way rather than allowed to pass as the ordinary case.**
+ATLAS-TASK-0027 implemented a record carrying `Proposed`, under the same
+authority and for the same reason: the status the record carries was not read as
+permission, and the owner gave permission explicitly instead. That task did not
+edit ADR-0017 and did not advance it, and `docs/adr/README.md` lists both
+ADR-0016 and ADR-0017 as `Proposed` today. Two records now govern shipped
+behaviour without having been accepted — ADR-0016 the configuration values
+start-up refuses, ADR-0017 the session it opens and the exit codes it reports.
+Accepting either is a step for the owner and not for this file, and nothing
+above is evidence that either step has been taken.
 
 ATLAS-TASK-0020 does not decide the broker or venue configuration surface.
 ADR-0013 declined to, and the specification names the absence of that surface in
@@ -186,9 +213,20 @@ ATLAS-TASK-0018's was. ATLAS-TASK-0025 then corrected the living documents
 that construction left stale. ADR-0016 exists, is indexed in
 `docs/adr/README.md`, and is implemented by ATLAS-TASK-0026, whose row is the
 last one above; it remains `Proposed`, which the ADR-0016 paragraph above
-records. This file declares no work after ATLAS-TASK-0026. The tasks above are
-the ones the repository itself declares; this file does not speculate past
-them.
+records.
+
+ATLAS-TASK-0027 and ATLAS-TASK-0028 were authorised and implemented after
+ATLAS-TASK-0026, so the clause immediately above naming that task's row as the
+last one is answered here rather than corrected there: ATLAS-TASK-0028 is the
+final task this file represents. Both of their rows cite
+`c5500dc58186dded011b52d62b227bd8d9e96872`, which is the first time two rows in
+that table cite one commit; that is a fact about how the work was committed and
+not about how it was scoped, and the two remain separate tasks. ADR-0017 is the
+governing decision record for ATLAS-TASK-0027, and the ADR-0017 paragraph above
+records that it too remains `Proposed`. ATLAS-TASK-0028 has no record of its
+own: it carried that same implementation into CI. This file declares no work
+after ATLAS-TASK-0028. The tasks above are the ones the repository itself
+declares; this file does not speculate past them.
 
 ATLAS-TASK-0021 is the correction the ATLAS-TASK-0020 entry below calls for and
 declines to number. That entry closes "this file names no number for it", which
@@ -1940,6 +1978,147 @@ therefore has one gap of its own against the definition of **Complete** at the
 top of this file, the one ‖ records, and no other. No CI run exists against this
 closeout as it is written; it changes one documentation file, which no test
 reads.
+
+### ATLAS-TASK-0027 — Execute broker lifecycle during startup
+
+Newly specified rather than recovered from the repository record — see the note
+marked † under the status table. This one has no specification file: the work was
+authorised in session and implemented directly, so there is no
+`docs/tasks/ATLAS-TASK-0027.md` and no specification commit. ATLAS-TASK-0018 and
+ATLAS-TASK-0024 stand in the same position — a row and a † with no specification
+file behind them — and this row is written the same way. ADR-0017 is the
+governing record, and it was committed first, in
+`f98b41ea2cb59d54980a1867a755c01ef8980937`, before any code was written against
+it.
+
+**The lifecycle now runs.** ATLAS-TASK-0020 built `BrokerOwner` and
+ATLAS-TASK-0023 constructed the adapter and handed it to one; nothing then
+started it. `main()` dropped the owner it had just been given, so six tasks'
+worth of machinery had never been driven by anything outside the test suite.
+This task calls `owner.start()`, and calls `owner.stop()` from a `finally`, so a
+session that opened is closed on every path out of the block including the
+failing one. That is the behavioural change in full.
+`c5500dc58186dded011b52d62b227bd8d9e96872` is the commit, and it carries this
+task and ATLAS-TASK-0028 together: eleven files, of which nine are this one's.
+
+**Three outcomes, and the third is new.** A settings section that cannot resolve
+or translate still raises `ConfigurationError`, still reports one JSON object on
+stderr under `atlas.core.startup_failed`, and still exits `2`. A session that
+will not open reports one JSON object on stderr under
+`atlas.core.broker_connect_failed` and exits `3`, with stdout empty. A session
+that opens leaves the startup record on stdout unchanged — its eight keys, and
+no broker value among them — and exits `0`. Exit `1` is reserved by not being
+produced. The two handlers are `ConfigurationError` then `BrokerError` in that
+source order, and there is no bare `except` and no `except Exception`: a failure
+this entrypoint has not been told how to report is not disguised as one it has.
+
+**On Linux the answer is always `3`, by construction.** MetaTrader 5 publishes
+Windows wheels only, so `pyproject.toml` marks it `sys_platform == "win32"`, the
+`python:3.12-slim-bookworm` image has no terminal to reach, and the loader turns
+the resulting `ImportError` into a `BrokerConnectionError` carrying no
+credential. Every containerised run therefore stops at the venue. That is the
+limit of what a Linux runner can observe rather than a defect — everything up to
+the venue is proved there, and the session itself is proved on a Windows host or
+not at all — and an exit `0` from a configured container would mean the
+entrypoint had stopped opening a session, not that CI had found a broker.
+
+**What this task does not claim.** It does not implement a long-running trading
+process, and ADR-0017's own title says `atlas-core` is not one. No run loop, no
+event loop, no scheduler, no supervision, no health timer, no reconnect, no
+failover, no threading, no message bus and no persistence was introduced. No
+strategy, no risk integration, no execution routing and no order placement
+either: the entrypoint names exactly one symbol from `atlas.broker`,
+`BrokerError`, which is the widening ADR-0017 authorised and bounded, and it
+imports no pipeline package at all. `UNCALLED_PORT_OPERATIONS` and
+`PIPELINE_PACKAGES` in `tests/unit/test_core_broker_boundary.py` are unchanged,
+and the test asserting that one module and only one names the selected
+implementation is unchanged and still passing. Nothing holds the adapter after
+`main()` returns; the process ends where it always did, one step further along.
+
+Locally at implementation time, and on this tree today: 3747 passed, 223 of them
+in the contract suite, with Ruff and Black clean and MyPy clean across 104 source
+files. CI run 54 — id `31963130750`, head
+`c5500dc58186dded011b52d62b227bd8d9e96872`, which is the implementation commit
+itself and not a later one — is green in both jobs, Quality Gate and Container &
+Compose. The row above therefore has no gap of its own against the definition of
+**Complete** at the top of this file, and none is recorded for it.
+
+Two documents go stale on this commit and neither is corrected here.
+`docs/architecture/overview.md` still carries a status banner reading
+ATLAS-TASK-0024, which was already two rows behind before this work and is four
+behind now; the same file's `## Processes` table still charters `atlas-core` as a
+long-lived container that owns the event loop and runs the trading pipeline,
+which is what ADR-0017's title says it is not, while the prose directly beneath
+that row was brought level by this commit and now documents exits `0`, `2` and
+`3`. `apps/atlas-core/src/atlas/apps/core/__init__.py` still opens by describing
+the package as the long-lived process that owns the event loop and runs the
+trading pipeline end to end, and still closes with the ATLAS-TASK-0001 sentence
+saying its implementation is delivered by a later task — in a package that now
+holds a working entrypoint and two implemented modules beside it. This file names
+them and numbers nothing, as the ATLAS-TASK-0020, ATLAS-TASK-0022 and
+ATLAS-TASK-0023 entries did before it.
+
+### ATLAS-TASK-0028 — Strengthen CI container startup/refusal contracts
+
+Newly specified rather than recovered from the repository record — see the note
+marked † under the status table. This one has no specification file either: the
+work was authorised in session and implemented directly, so there is no
+`docs/tasks/ATLAS-TASK-0028.md`. It has no commit of its own. It was implemented
+in `c5500dc58186dded011b52d62b227bd8d9e96872`, the same commit as
+ATLAS-TASK-0027, and it is two of that commit's eleven files:
+`.github/workflows/ci.yml` and `tests/contract/test_repository_structure.py`.
+The two rows above are the first in that table to cite one commit. They stay
+separate rows because they are separate scopes — one changed what the
+application does, the other changed what CI proves about it.
+
+**The refusal is observed in a container rather than inferred from unit tests.**
+The Container & Compose job runs the image with all four broker values supplied
+and requires exit `3`; that stdout is empty; that stderr holds exactly one JSON
+line; and that the line's `event` is `atlas.core.broker_connect_failed`. The two
+streams are captured apart rather than merged, because "stdout stayed empty" is
+half of what the step exists to show and merging them would destroy the evidence
+for it. The password is checked for absence from both streams before either is
+echoed, so the step that would detect a leak never prints one.
+
+**The startup-record coverage was kept rather than dropped.** Until this commit
+the configured container ran through to exit `0`, and that step could assert the
+two things about the record an exit code cannot show: that it carries exactly the
+eight keys ATLAS-TASK-0001 defined — `event`, `app_name`, `environment`, `debug`,
+`logging`, `postgres`, `redis`, `duckdb` — and that none of the four broker
+values reaches it. A container that now stops at the venue can never emit that
+record, so rather than lose the coverage the check moved into a step of its own:
+same image, same configured environment, calling the same public
+`build_startup_record` the entrypoint calls, one step short of the session it
+cannot open.
+
+**ADR-0016's refusal is still observed, unchanged.** The third step runs the same
+image with a password and nothing else, and still requires exit `2`, exactly one
+line, and the event `atlas.core.startup_failed`. A password is supplied precisely
+so that the failure has a credential available to leak and is shown not to leak
+it. ATLAS-TASK-0024 built that check and this task did not weaken it: what
+changed around it is that the configured path now goes further, not that the
+unconfigured path goes less far.
+
+**Two existing contract tests were rewritten to follow the behaviour, and
+neither was relaxed.** The test that checked one configured step passes each
+broker variable is now parametrised over both steps that receive a complete
+broker section, because both assert that a value did not leak and an assertion
+that a withheld value is absent proves nothing. The test that pinned
+`"atlas.core.startup"` to the configured step moved to the step that now carries
+the record and gained three further assertions — `build_startup_record`, the
+key-set check and the leak check. Two tests were added beside them, for the exit
+`3` outcome and for the both-streams credential check. Nothing was skipped,
+xfailed, marked or deleted, and the contract suite stands at 223.
+
+CI run 54 — id `31963130750`, head
+`c5500dc58186dded011b52d62b227bd8d9e96872` — is green in both jobs, and all three
+of the steps this task wrote or reshaped passed on it: "Run the image start-up
+check with broker configuration", "Verify the image still builds its startup
+record", and "Run the image self-check without broker configuration". That run
+covers the exact implementation commit rather than a later one, so the row above
+has no gap against the definition of **Complete** at the top of this file, and no
+marker in the ‡, §, ¶ or ‖ family is warranted for either of the two rows this
+closeout adds.
 
 ## Known documentation debt
 
