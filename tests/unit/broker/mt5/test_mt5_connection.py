@@ -453,8 +453,13 @@ class TestWhatConfigurationValidationDeliberatelyDoesNotCheck:
         with monkeypatch.context() as patched:
             refuse_filesystem(patched)
 
+            # Drive-less and leading-slash-free, so it is relative on both
+            # platforms. ``Path.absolute()`` returns ``self`` without consulting
+            # the cwd when the path is already absolute, and a leading slash is
+            # absolute under POSIX but not under Windows — which passed here and
+            # failed on Linux CI. Do not make this path absolute.
             with pytest.raises(FilesystemTouchedError):
-                operation(Path("/atlas-no-such-terminal-9f2c1a/terminal64.exe"))
+                operation(Path("atlas-no-such-terminal-9f2c1a/terminal64.exe"))
 
     def test_no_filesystem_call_appears_in_the_source_of_the_model(self) -> None:
         # The static half. The runtime check above covers the path actually
