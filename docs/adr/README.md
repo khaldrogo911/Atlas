@@ -28,6 +28,7 @@ the history of the system's reasoning stays intact.
 | [0017](0017-startup-opens-a-session-and-closes-it.md) | Startup opens a broker session, verifies it and closes it; `atlas-core` is not a long-running process | Accepted |
 | [0018](0018-the-runtime-process-shape-is-deferred.md) | The long-lived runtime and process shape is deferred pending its own decision | Accepted |
 | [0019](0019-a-runtime-entrypoint-owns-the-session-and-the-pipeline.md) | `atlas-core` gains a runtime entrypoint; the runtime owns the session, the loop and the pipeline | Accepted |
+| [0020](0020-the-runtime-polls-a-configured-instrument-on-a-configured-interval.md) | The runtime polls a configured instrument on a configured interval | Accepted |
 
 ## Writing one
 
