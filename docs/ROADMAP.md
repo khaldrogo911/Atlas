@@ -40,6 +40,7 @@ and in package documentation. This file is where they resolve to a status.
 | ATLAS-TASK-0026 † | Enforce the ADR-0016 broker startup validation boundary | ✅ Complete | `06418acf326a2c4f7964a8963ccfeae433c25db6` ‖ |
 | ATLAS-TASK-0027 † | Execute broker lifecycle during startup | ✅ Complete | `c5500dc58186dded011b52d62b227bd8d9e96872` |
 | ATLAS-TASK-0028 † | Strengthen CI container startup/refusal contracts | ✅ Complete | `c5500dc58186dded011b52d62b227bd8d9e96872` |
+| ATLAS-TASK-0029 | Give `atlas-core` a runtime entrypoint (ADR-0019) | ✅ Complete | `461046bde2c226de6cf35e6da07ab17dd71e983c` |
 
 † **Newly specified, not recovered.** The unmarked rows are evidenced by the
 repository record: the task existed, and the commit it cites is the work.
@@ -224,8 +225,10 @@ that table cite one commit; that is a fact about how the work was committed and
 not about how it was scoped, and the two remain separate tasks. ADR-0017 is the
 governing decision record for ATLAS-TASK-0027, and the ADR-0017 paragraph above
 records that it too remains `Proposed`. ATLAS-TASK-0028 has no record of its
-own: it carried that same implementation into CI. This file declares no work
-after ATLAS-TASK-0028. The tasks above are the ones the repository itself
+own: it carried that same implementation into CI. ATLAS-TASK-0029 follows it,
+with a specification file of its own — `docs/tasks/ATLAS-TASK-0029.md` —
+unlike the task before it. This file declares no work after ATLAS-TASK-0029.
+The tasks above are the ones the repository itself
 declares; this file does not speculate past them.
 
 **ADR-0016 and ADR-0017 are now accepted, and the paragraphs above calling them
@@ -270,7 +273,7 @@ to implement — the whole of its effect is a constraint on what may be built
 next. As with ADR-0013, ADR-0014, ADR-0015, ADR-0016 and ADR-0017, ADR-0018 has
 no row in that table and will not acquire one — a decision is not a task. Unlike
 them, it will acquire no implementing task either, and this file still declares
-no work after ATLAS-TASK-0028.
+no work after ATLAS-TASK-0029.
 
 ADR-0018 carries `Accepted` from its first commit, and that is not a formality
 here. A prohibition that has not been accepted binds nothing, and the record
@@ -2179,6 +2182,26 @@ covers the exact implementation commit rather than a later one, so the row above
 has no gap against the definition of **Complete** at the top of this file, and no
 marker in the ‡, §, ¶ or ‖ family is warranted for either of the two rows this
 closeout adds.
+
+### ATLAS-TASK-0029 — Give `atlas-core` a runtime entrypoint
+
+`docs/tasks/ATLAS-TASK-0029.md` specifies this task. It implements ADR-0019:
+`CoreRuntime[ObservationT]` and `run_runtime` hold one `BrokerOwner` session
+open for the life of a process and drive the market → strategy → risk →
+execution → submission pipeline over it, exactly as that record decided.
+
+**Unlike ATLAS-TASK-0028, this task has a specification file, written after
+its implementation rather than before it.** `runtime.py` and
+`tests/unit/test_core_runtime.py` cited "ATLAS-TASK-0029" before this file
+existed; that gap is what this section, and the file it points to, close.
+
+**What this task does not claim**, restated because it was true of
+ATLAS-TASK-0027 and is true again here: no polling value, no traded
+instrument, no strategy and no execution policy is supplied. `CoreRuntime`'s
+four collaborator parameters have no defaults, and nothing in the repository
+can yet construct and run one outside a test. ADR-0020, which would supply
+two of those four values, remains `Proposed` and is not accepted, indexed,
+or implemented by this task.
 
 ## Known documentation debt
 
