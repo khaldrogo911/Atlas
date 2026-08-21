@@ -41,6 +41,7 @@ and in package documentation. This file is where they resolve to a status.
 | ATLAS-TASK-0027 † | Execute broker lifecycle during startup | ✅ Complete | `c5500dc58186dded011b52d62b227bd8d9e96872` |
 | ATLAS-TASK-0028 † | Strengthen CI container startup/refusal contracts | ✅ Complete | `c5500dc58186dded011b52d62b227bd8d9e96872` |
 | ATLAS-TASK-0029 | Give `atlas-core` a runtime entrypoint (ADR-0019) | ✅ Complete | `461046bde2c226de6cf35e6da07ab17dd71e983c` |
+| ATLAS-TASK-0030 | Give the runtime a polling observation source (ADR-0020) | ✅ Complete | `8bef53d8982ae1197e1cd47dcad6f12fd57f7552` |
 
 † **Newly specified, not recovered.** The unmarked rows are evidenced by the
 repository record: the task existed, and the commit it cites is the work.
@@ -227,7 +228,7 @@ governing decision record for ATLAS-TASK-0027, and the ADR-0017 paragraph above
 records that it too remains `Proposed`. ATLAS-TASK-0028 has no record of its
 own: it carried that same implementation into CI. ATLAS-TASK-0029 follows it,
 with a specification file of its own — `docs/tasks/ATLAS-TASK-0029.md` —
-unlike the task before it. This file declares no work after ATLAS-TASK-0029.
+unlike the task before it. This file declares no work after ATLAS-TASK-0030.
 The tasks above are the ones the repository itself
 declares; this file does not speculate past them.
 
@@ -273,7 +274,7 @@ to implement — the whole of its effect is a constraint on what may be built
 next. As with ADR-0013, ADR-0014, ADR-0015, ADR-0016 and ADR-0017, ADR-0018 has
 no row in that table and will not acquire one — a decision is not a task. Unlike
 them, it will acquire no implementing task either, and this file still declares
-no work after ATLAS-TASK-0029.
+no work after ATLAS-TASK-0030.
 
 ADR-0018 carries `Accepted` from its first commit, and that is not a formality
 here. A prohibition that has not been accepted binds nothing, and the record
@@ -2202,6 +2203,26 @@ four collaborator parameters have no defaults, and nothing in the repository
 can yet construct and run one outside a test. ADR-0020, which would supply
 two of those four values, remains `Proposed` and is not accepted, indexed,
 or implemented by this task.
+
+### ATLAS-TASK-0030 — Give the runtime a polling observation source
+
+`docs/tasks/ATLAS-TASK-0030.md` specifies this task. It implements ADR-0020's
+third and final prerequisite: `PollingSettings` on `AtlasSettings`, and
+`build_polling_observer` in `broker_ownership.py`, which raises
+`ConfigurationError` if the instrument or interval is unconfigured and
+otherwise returns a callable that reads `get_tick` on every invocation.
+
+**The read verb needed a fifth boundary-test permission that didn't exist
+before this task.** `test_core_broker_boundary.py` gains
+`MARKET_DATA_PORT_OPERATIONS`, bounded to the ownership module — the first
+change to that file's permission count since ADR-0019.
+
+**What this task does not claim**, restated because it was true of
+ATLAS-TASK-0029 and ATLAS-TASK-0027 before it: no traded instrument, no
+interval value, no strategy and no execution policy is supplied anywhere.
+`CoreRuntime` still cannot be constructed outside a test — this task
+produces one more pluggable, independently-tested collaborator, not a
+runnable process.
 
 ## Known documentation debt
 
