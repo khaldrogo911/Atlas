@@ -29,11 +29,16 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from atlas.broker import BrokerNotConnectedError
+from atlas.config import ConfigurationError
 
 if TYPE_CHECKING:
-    from atlas.broker import BrokerAdapter
+    from collections.abc import Callable
 
-__all__ = ["BrokerOwner"]
+    from atlas.broker import BrokerAdapter
+    from atlas.broker.models import Tick
+    from atlas.config import AtlasSettings
+
+__all__ = ["BrokerOwner", "build_polling_observer"]
 
 
 class BrokerOwner:
@@ -126,3 +131,47 @@ class BrokerOwner:
         if self._started:
             self._adapter.disconnect()
             self._started = False
+
+
+def build_polling_observer(settings: AtlasSettings, owner: BrokerOwner) -> Callable[[], Tick]:
+    """Build the runtime's read of a polled instrument.
+
+    ADR-0020 gives the runtime a poll rather than a stream. This is the read
+    side of that decision: a zero-argument callable the runtime invokes once
+    per cycle, each call reaching :attr:`BrokerOwner.adapter` fresh rather than
+    caching anything between calls. Filtering an unchanged quote or judging one
+    stale is a policy this function does not hold; every call it makes is
+    returned to the caller unmodified.
+
+    Args:
+        settings: Resolved application settings. Only the polling section is
+            read.
+        owner: The owner whose adapter each call reaches through. Not started
+            here — the same construction-is-not-connection split
+            :func:`~atlas.apps.core.composition.build_broker_owner` already
+            keeps.
+
+    Returns:
+        A zero-argument callable that returns the configured instrument's
+        latest quote on every call.
+
+    Raises:
+        ConfigurationError: If the polling section does not describe an
+            instrument and an interval to poll. Raised in the configuration
+            package's own vocabulary, the same as
+            :func:`~atlas.apps.core.composition.build_broker_owner`'s refusal,
+            so start-up has one error to handle rather than two.
+    """
+    if settings.polling.instrument == "" or settings.polling.poll_interval_seconds <= 0:
+        msg = (
+            "invalid polling configuration: polling.instrument and "
+            "polling.poll_interval_seconds must both be set"
+        )
+        raise ConfigurationError(msg)
+
+    instrument = settings.polling.instrument
+
+    def observe() -> Tick:
+        return owner.adapter.get_tick(instrument)
+
+    return observe

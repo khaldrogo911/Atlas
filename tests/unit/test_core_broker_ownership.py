@@ -21,12 +21,21 @@ not a process and names the one it wants.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+from decimal import Decimal
+from typing import TYPE_CHECKING
+
 import pytest
 
 from atlas.apps.core import broker_ownership
-from atlas.apps.core.broker_ownership import BrokerOwner
+from atlas.apps.core.broker_ownership import BrokerOwner, build_polling_observer
 from atlas.broker import BrokerConnectionError, BrokerNotConnectedError
 from atlas.broker.mock import MockBrokerAdapter
+from atlas.broker.models import Tick
+from atlas.config import ConfigurationError, load_settings
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 pytestmark = pytest.mark.unit
 
@@ -90,7 +99,7 @@ class TestAccessIsGoverned:
 
     def test_the_module_exposes_no_owner_and_no_adapter_to_import(self) -> None:
         """A-3, H-2: access is granted downward, so there is nothing here to acquire."""
-        assert broker_ownership.__all__ == ["BrokerOwner"]
+        assert broker_ownership.__all__ == ["BrokerOwner", "build_polling_observer"]
 
         instances = {
             name
@@ -217,3 +226,87 @@ class TestAConnectFailurePropagates:
 
         assert adapter.is_connected() is True
         assert owner.adapter is adapter
+
+
+INSTRUMENT = "EURUSD"
+POLL_INTERVAL_SECONDS = "5"
+
+
+def _tick(symbol: str = INSTRUMENT) -> Tick:
+    return Tick(
+        symbol=symbol,
+        bid=Decimal("1.10000"),
+        ask=Decimal("1.10020"),
+        timestamp=datetime.now(UTC),
+    )
+
+
+class _RecordingAdapter(MockBrokerAdapter):
+    """A real adapter whose ``get_tick`` also records what it was called with.
+
+    This file's own convention is a real adapter everywhere, because a
+    hand-written double would test the double. A bare recording closure cannot
+    stand in for the adapter here regardless: :class:`BrokerOwner` is
+    constructed against the port, not against whatever a test happens to pass.
+    The recording asked for is layered onto the real adapter instead, as an
+    override of the one method under test.
+    """
+
+    def __init__(self, tick: Tick) -> None:
+        super().__init__()
+        self.calls: list[str] = []
+        self._tick = tick
+
+    def get_tick(self, symbol: str) -> Tick:
+        self.calls.append(symbol)
+        return self._tick
+
+
+class TestBuildPollingObserver:
+    """ADR-0020's read side: a zero-argument callable over an owned adapter."""
+
+    def test_an_unconfigured_instrument_is_refused(
+        self, isolated_env: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        assert isolated_env.exists()
+        monkeypatch.setenv("ATLAS_POLLING__POLL_INTERVAL_SECONDS", POLL_INTERVAL_SECONDS)
+        owner = BrokerOwner(_RecordingAdapter(_tick()))
+
+        with pytest.raises(ConfigurationError):
+            build_polling_observer(load_settings(), owner)
+
+    def test_an_unconfigured_interval_is_refused(
+        self, isolated_env: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        assert isolated_env.exists()
+        monkeypatch.setenv("ATLAS_POLLING__INSTRUMENT", INSTRUMENT)
+        owner = BrokerOwner(_RecordingAdapter(_tick()))
+
+        with pytest.raises(ConfigurationError):
+            build_polling_observer(load_settings(), owner)
+
+    def test_neither_value_configured_is_refused(self, isolated_env: Path) -> None:
+        assert isolated_env.exists()
+        owner = BrokerOwner(_RecordingAdapter(_tick()))
+
+        with pytest.raises(ConfigurationError):
+            build_polling_observer(load_settings(), owner)
+
+    def test_a_configured_observer_reads_the_configured_symbol_on_every_call(
+        self, isolated_env: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        assert isolated_env.exists()
+        monkeypatch.setenv("ATLAS_POLLING__INSTRUMENT", INSTRUMENT)
+        monkeypatch.setenv("ATLAS_POLLING__POLL_INTERVAL_SECONDS", POLL_INTERVAL_SECONDS)
+        tick = _tick()
+        adapter = _RecordingAdapter(tick)
+        owner = BrokerOwner(adapter)
+        owner.start()
+
+        observe = build_polling_observer(load_settings(), owner)
+        first = observe()
+        second = observe()
+
+        assert adapter.calls == [INSTRUMENT, INSTRUMENT]
+        assert first is tick
+        assert second is tick

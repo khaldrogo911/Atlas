@@ -39,6 +39,7 @@ __all__ = [
     "BrokerSettings",
     "DuckDBSettings",
     "LoggingSettings",
+    "PollingSettings",
     "PostgresSettings",
     "RedisSettings",
     "RiskSettings",
@@ -250,6 +251,39 @@ class BrokerSettings(BaseModel):
     )
 
 
+class PollingSettings(BaseModel):
+    """The instrument and interval the runtime polls.
+
+    Neither value carries a default that could drive a poll: an empty
+    instrument names nothing to observe, and a zero interval is not a cadence.
+    Settings must still resolve with these defaults, for the same reason
+    :class:`BrokerSettings` does — a process that never runs the runtime has no
+    reason to fail on their absence. Absence is not permission here either, and
+    the refusal lands where the observer is actually built, in
+    :func:`atlas.apps.core.broker_ownership.build_polling_observer`, not here.
+    """
+
+    model_config = _SECTION_CONFIG
+
+    instrument: str = Field(
+        default="",
+        description=(
+            "Traded instrument code, exactly as the venue publishes it. Empty "
+            "is the not-configured default and refuses at observer construction. "
+            "Supply ATLAS_POLLING__INSTRUMENT."
+        ),
+    )
+    poll_interval_seconds: float = Field(
+        default=0.0,
+        ge=0,
+        description=(
+            "Minimum gap between the start of one poll cycle and the next, in "
+            "seconds. Zero is the not-configured default and refuses at "
+            "observer construction. Supply ATLAS_POLLING__POLL_INTERVAL_SECONDS."
+        ),
+    )
+
+
 class AtlasSettings(BaseSettings):
     """Root settings object for every Project Atlas process."""
 
@@ -280,6 +314,7 @@ class AtlasSettings(BaseSettings):
     duckdb: DuckDBSettings = Field(default_factory=DuckDBSettings)
     risk: RiskSettings = Field(default_factory=RiskSettings)
     broker: BrokerSettings = Field(default_factory=BrokerSettings)
+    polling: PollingSettings = Field(default_factory=PollingSettings)
 
     @classmethod
     def settings_customise_sources(

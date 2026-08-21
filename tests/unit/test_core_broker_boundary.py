@@ -14,24 +14,27 @@ them, and — now that traffic exists — hold the traffic to its granted list.
 **This file is not an `apps/` import rule, and must not become one.** The four
 package boundary tests each hold a closed `PERMITTED_ATLAS_PACKAGES` tuple — a
 positive statement of everything that package may import. There is no such tuple
-here. Exactly four permissions are stated below, each named and each traceable:
+here. Exactly five permissions are stated below, each named and each traceable:
 ADR-0015 selected `MT5BrokerAdapter`, and one module may name that
 implementation and its configuration type for the one purpose the record gave
 it; ADR-0017 decided that start-up reports a session it could not open, and one
 module may name `BrokerError` for that; ADR-0019 gave the runtime the pipeline,
 and one module may take six named symbols from the three pipeline packages;
 ADR-0019 gave the runtime supervision and submission, and one module may name
-six port operations. Each extends to no other module, to no other name, and to
+six port operations. ADR-0020 gave the runtime a poll instead of a stream, and
+the ownership module may name one port operation for the read it performs.
+Each extends to no other module, to no other name, and to
 no claim about what an application may import in general. That general rule is
 still undecided — ADR-0013 `:242-249` records that it creates and implies none,
 and neither ADR-0015 nor ADR-0019 moves it. It would begin with a decision
-record rather than with a test file, which is precisely how all four
+record rather than with a test file, which is precisely how all five
 permissions here began.
 
 Every other assertion is a property some accepted decision creates: ADR-0006's
 abstraction, ADR-0013's single owner and downward-granted access, ADR-0015's
 bounded selection, ADR-0017's bounded error handling, and ADR-0019's bounded
-grant of supervision and trading to one named module.
+grant of supervision and trading to one named module, and ADR-0020's bounded
+grant of a market-data read to the ownership module.
 
 What these tests deliberately do **not** claim
     That the adapter is used *well*. ADR-0019 decided which operations the
@@ -194,6 +197,15 @@ RUNTIME_PORT_OPERATIONS: Final = (
     "place_order",
 )
 
+#: The one port operation ADR-0020 permits :data:`OWNERSHIP_MODULE` to name.
+#:
+#: `get_tick` is the read
+#: :func:`~atlas.apps.core.broker_ownership.build_polling_observer` wraps.
+#: Granted to the module that already owns the adapter, rather than to a new
+#: one, because ADR-0020 built the read on the seam ADR-0013 already opened
+#: instead of opening another.
+MARKET_DATA_PORT_OPERATIONS: Final = ("get_tick",)
+
 #: Decorators that would move the adapter out of an instance and into the module.
 #:
 #: `atlas.config` caches `get_settings` this way, and §12.1 of the task declines
@@ -254,6 +266,18 @@ def _authorised_callers_of(operation: str) -> set[str]:
     """
     if operation in RUNTIME_PORT_OPERATIONS:
         return {_app_id(RUNTIME_MODULE)}
+    return set()
+
+
+def _authorised_callers_of_market_data(operation: str) -> set[str]:
+    """The app modules ADR-0020 permits to name ``operation``, by app id.
+
+    Mirrors :func:`_authorised_callers_of`: the ownership module is granted one
+    operation; every other module, including the other three in its own
+    application, is granted none.
+    """
+    if operation in MARKET_DATA_PORT_OPERATIONS:
+        return {_app_id(OWNERSHIP_MODULE)}
     return set()
 
 
@@ -639,11 +663,11 @@ class TestThePortIsImportedOnlyWhereAuthorised:
 
         assert namers == {_app_id(OWNERSHIP_MODULE)}
 
-    def test_the_ownership_module_takes_two_names_from_the_port_and_no_others(self) -> None:
-        """The edge is used for the abstraction and the refusal, and nothing else."""
+    def test_the_ownership_module_takes_three_names_from_the_port_and_no_others(self) -> None:
+        """The edge is used for the abstraction, the refusal and the read, and nothing else."""
         taken = set(_broker_names(_source_of(OWNERSHIP_MODULE)))
 
-        assert taken == {ADAPTER, "BrokerNotConnectedError"}
+        assert taken == {ADAPTER, "BrokerNotConnectedError", "Tick"}
 
     def test_the_entrypoint_takes_one_name_from_the_port_and_it_is_the_error(self) -> None:
         """ADR-0017's grant, bounded to the failure it exists to report.
@@ -908,6 +932,23 @@ class TestOnlyTheRuntimeSupervisesOrTrades:
         assert "health" not in _referenced_names(_source_of(RUNTIME_MODULE))
 
 
+class TestOnlyTheOwnershipModuleReadsMarketData:
+    """The fifth grant: ADR-0020 lets :data:`OWNERSHIP_MODULE` call ``get_tick``.
+
+    A narrower mirror of :class:`TestOnlyTheRuntimeSupervisesOrTrades` — one
+    operation and one module rather than six operations and the runtime — for
+    the same reason that class exists: a grant checked only by removing a name
+    from a prohibition list is a grant to every application at once.
+    """
+
+    def test_the_market_data_grant_rule_can_actually_fire(self) -> None:
+        """A granted operation in an ungranted module is caught, on real source."""
+        mutated = _with_line(_source_of(ENTRYPOINT_MODULE), "adapter.get_tick(symbol)")
+
+        assert "get_tick" in _referenced_names(mutated)
+        assert _app_id(ENTRYPOINT_MODULE) not in _authorised_callers_of_market_data("get_tick")
+
+
 class TestTheAdapterIsHeldOnAnInstance:
     @pytest.mark.parametrize("path", APP_SOURCES, ids=_app_id)
     def test_no_module_level_assignment_binds_an_adapter(self, path: Path) -> None:
@@ -946,8 +987,8 @@ class TestThisFileIsNotAnApplicationImportRule:
 
         assert not [name for name in bound if name.startswith("PERMITTED")], bound
 
-    def test_this_file_states_four_bounded_permissions_and_nothing_wider(self) -> None:
-        """Every constant here is an exclusion, a scanning aid, or one of four grants.
+    def test_this_file_states_five_bounded_permissions_and_nothing_wider(self) -> None:
+        """Every constant here is an exclusion, a scanning aid, or one of five grants.
 
         The first grant is :data:`SELECTED_IMPLEMENTATION_NAMES`, bounded by
         :data:`COMPOSITION_MODULE`: one implementation, one module, one record.
@@ -955,7 +996,9 @@ class TestThisFileIsNotAnApplicationImportRule:
         :data:`ENTRYPOINT_MODULE`: one name, one module, one record. ADR-0019
         added the third and fourth, both bounded by :data:`RUNTIME_MODULE`:
         :data:`PIPELINE_NAME_GRANT`, six symbols across three packages, and
-        :data:`RUNTIME_PORT_OPERATIONS`, six operations on the port.
+        :data:`RUNTIME_PORT_OPERATIONS`, six operations on the port. ADR-0020
+        added the fifth, bounded by :data:`OWNERSHIP_MODULE`:
+        :data:`MARKET_DATA_PORT_OPERATIONS`, one operation on the port.
 
         Pinning the whole set is what makes a wider grant impossible to add
         quietly — a new constant fails here before it can permit anything, and
@@ -978,6 +1021,7 @@ class TestThisFileIsNotAnApplicationImportRule:
             "RUNTIME_MODULE",
             "ADAPTER",
             "HANDLED_PORT_ERROR",
+            "MARKET_DATA_PORT_OPERATIONS",
             "PIPELINE_PACKAGES",
             "PIPELINE_NAME_GRANT",
             "CONCRETE_ADAPTER_PACKAGES",

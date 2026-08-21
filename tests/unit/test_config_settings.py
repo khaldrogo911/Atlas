@@ -18,6 +18,7 @@ from atlas.config import (
     ConfigurationError,
     Environment,
     LayeredTomlSource,
+    PollingSettings,
     PostgresSettings,
     get_settings,
     load_settings,
@@ -47,8 +48,10 @@ CONFIG_PACKAGE_SOURCES: Final = tuple(sorted(CONFIG_PACKAGE_DIR.rglob("*.py")))
 #: The four broker values, and the whole of them.
 BROKER_FIELDS: Final = ("login", "password", "server", "terminal_path")
 
-#: Every section on :class:`AtlasSettings` after ATLAS-TASK-0022.
-SECTION_NAMES: Final = frozenset({"logging", "postgres", "redis", "duckdb", "risk", "broker"})
+#: Every section on :class:`AtlasSettings` after ATLAS-TASK-0030.
+SECTION_NAMES: Final = frozenset(
+    {"logging", "postgres", "redis", "duckdb", "risk", "broker", "polling"}
+)
 
 #: Strings whose presence in the configuration package would mean the broker
 #: section had been written against a venue rather than in primitives.
@@ -578,7 +581,7 @@ class TestTheBrokerSection:
         with pytest.raises(ConfigurationError, match="login"):
             load_settings()
 
-    def test_the_root_carries_six_sections_including_broker(self, isolated_env: Path) -> None:
+    def test_the_root_carries_seven_sections_including_polling(self, isolated_env: Path) -> None:
         assert isolated_env.exists()
         sections = {
             name
@@ -602,6 +605,53 @@ class TestTheBrokerSecret:
         assert settings.broker.password.get_secret_value() == "broker-secret"
         assert "broker-secret" not in repr(settings)
         assert "broker-secret" not in str(settings)
+
+
+class TestThePollingSection:
+    def test_the_section_constructs_with_no_arguments(self) -> None:
+        """Every section is built by ``default_factory``, so this must not raise."""
+        polling = PollingSettings()
+
+        assert polling.instrument == ""
+        assert polling.poll_interval_seconds == 0.0
+
+    def test_the_section_is_frozen(self) -> None:
+        polling = PollingSettings()
+
+        with pytest.raises(ValidationError):
+            polling.instrument = "EURUSD"
+
+    def test_an_unknown_key_inside_the_section_is_rejected(
+        self, config_tree: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        (config_tree / "default" / "atlas.toml").write_text(
+            '[polling]\ninstrumment = "EURUSD"\n', encoding="utf-8"
+        )
+        monkeypatch.setenv("ATLAS_ENV", "development")
+
+        with pytest.raises(ConfigurationError):
+            load_settings()
+
+    def test_a_negative_poll_interval_is_rejected(
+        self, isolated_env: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        assert isolated_env.exists()
+        monkeypatch.setenv("ATLAS_POLLING__POLL_INTERVAL_SECONDS", "-1")
+
+        with pytest.raises(ConfigurationError, match="poll_interval_seconds"):
+            load_settings()
+
+    def test_each_field_loads_from_its_own_environment_variable(
+        self, isolated_env: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        assert isolated_env.exists()
+        monkeypatch.setenv("ATLAS_POLLING__INSTRUMENT", "EURUSD")
+        monkeypatch.setenv("ATLAS_POLLING__POLL_INTERVAL_SECONDS", "5")
+
+        polling = load_settings().polling
+
+        assert polling.instrument == "EURUSD"
+        assert polling.poll_interval_seconds == 5.0
 
 
 class TestBrokerConfigurationSources:
