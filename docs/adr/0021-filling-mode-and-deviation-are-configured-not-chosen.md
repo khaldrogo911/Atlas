@@ -1,6 +1,6 @@
 # ADR 0021 — Filling mode and deviation are configured, not chosen
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-08-21
 
 ## Context
@@ -414,7 +414,7 @@ authorised.
 
 Hard prerequisite:
 
-1. **This record, accepted.** Not yet — it is `Proposed`.
+1. **This record, accepted.** Satisfied.
 
 Once accepted, an implementing task may add the configuration this record
 authorises to `atlas.broker.mt5`, implement the fail-closed behaviour described
