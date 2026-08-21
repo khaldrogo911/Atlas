@@ -2246,3 +2246,16 @@ runnable process.
   ATLAS-TASK-0018 added the one row it needed, in `dfc12899`, and the index now
   lists ADR-0001 through ADR-0012. This entry is kept as the record of a debt
   that is closed rather than one that is open.
+
+- **`test_the_lost_update_probe_can_actually_fire` failed to fire the race
+  it exists to prove, once, on CI (`tests/unit/common/test_clock.py`, run
+  #59, commit `9a73fee`, 2026-08-21).** The assertion compares a minimum
+  observed total across `RACE_ROUNDS` concurrent-write attempts against the
+  value with no lost updates; every round reached the full total, so no
+  interleaving happened to lose one this run. A re-run of the same commit,
+  same job, passed cleanly — the probe fired as intended. This is not
+  treated as a fixed bug and not treated as resolved: a canary that can
+  complete a full run without firing even once is worth naming, since
+  `RACE_ROUNDS` or the thread count may be tuned tighter than CI's actual
+  scheduling behavior supports. Not investigated further as part of any
+  task — unrelated to ATLAS-TASK-0030, the change present in that commit.
