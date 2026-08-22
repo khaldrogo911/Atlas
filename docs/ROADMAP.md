@@ -43,6 +43,7 @@ and in package documentation. This file is where they resolve to a status.
 | ATLAS-TASK-0029 | Give `atlas-core` a runtime entrypoint (ADR-0019) | ✅ Complete | `461046bde2c226de6cf35e6da07ab17dd71e983c` |
 | ATLAS-TASK-0030 | Give the runtime a polling observation source (ADR-0020) | ✅ Complete | `8bef53d8982ae1197e1cd47dcad6f12fd57f7552` |
 | ATLAS-TASK-0031 | Implement place_order over order_send (ADR-0021) | ✅ Complete | `ea4a6a525ab81b2b25be43a7cfdb88d087ead302` |
+| ATLAS-TASK-0032 | Implement close_position over order_send and history_deals_get (ADR-0021) | ✅ Complete | `1a86c373a733825e76dc3f3e362555355550829f` |
 
 † **Newly specified, not recovered.** The unmarked rows are evidenced by the
 repository record: the task existed, and the commit it cites is the work.
@@ -229,7 +230,7 @@ governing decision record for ATLAS-TASK-0027, and the ADR-0017 paragraph above
 records that it too remains `Proposed`. ATLAS-TASK-0028 has no record of its
 own: it carried that same implementation into CI. ATLAS-TASK-0029 follows it,
 with a specification file of its own — `docs/tasks/ATLAS-TASK-0029.md` —
-unlike the task before it. This file declares no work after ATLAS-TASK-0031.
+unlike the task before it. This file declares no work after ATLAS-TASK-0032.
 The tasks above are the ones the repository itself
 declares; this file does not speculate past them.
 
@@ -275,7 +276,7 @@ to implement — the whole of its effect is a constraint on what may be built
 next. As with ADR-0013, ADR-0014, ADR-0015, ADR-0016 and ADR-0017, ADR-0018 has
 no row in that table and will not acquire one — a decision is not a task. Unlike
 them, it will acquire no implementing task either, and this file still declares
-no work after ATLAS-TASK-0031.
+no work after ATLAS-TASK-0032.
 
 ADR-0018 carries `Accepted` from its first commit, and that is not a formality
 here. A prohibition that has not been accepted binds nothing, and the record
@@ -2246,6 +2247,25 @@ task landed.
 **What this task does not claim**: no `ExecutionPolicy` change, no
 strategy, no backtesting, no runtime wiring. `CoreRuntime` still cannot be
 constructed outside a test.
+
+### ATLAS-TASK-0032 — Implement close_position over order_send and history_deals_get
+
+`docs/tasks/ATLAS-TASK-0032.md` specifies this task. No new ADR was
+needed — `close_position`'s own pre-existing docstring already specified
+what it required: an opposing order, and a deal-history read for a
+volume-weighted average. Resolves a position by ticket via unfiltered
+`positions_get()`; refuses a `volume` exceeding the position's open
+size; sends the opposing order reusing `ATLAS-TASK-0031`'s exact
+deviation/filling-mode pattern; filters `history_deals_get`'s results to
+the closing order's own deals specifically, not every deal the position
+has ever had, and aggregates them into an `Execution`.
+
+**`modify_order` and `cancel_order` remain `NotImplementedError`** —
+the last two of the four trading methods ADR-0021 unblocked. Each still
+needs its own order-state read-back, not a deal-history one.
+
+**What this task does not claim**: no `ExecutionPolicy` change, no
+strategy, no backtesting, no runtime wiring.
 
 ## Known documentation debt
 
