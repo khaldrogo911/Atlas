@@ -42,6 +42,7 @@ and in package documentation. This file is where they resolve to a status.
 | ATLAS-TASK-0028 † | Strengthen CI container startup/refusal contracts | ✅ Complete | `c5500dc58186dded011b52d62b227bd8d9e96872` |
 | ATLAS-TASK-0029 | Give `atlas-core` a runtime entrypoint (ADR-0019) | ✅ Complete | `461046bde2c226de6cf35e6da07ab17dd71e983c` |
 | ATLAS-TASK-0030 | Give the runtime a polling observation source (ADR-0020) | ✅ Complete | `8bef53d8982ae1197e1cd47dcad6f12fd57f7552` |
+| ATLAS-TASK-0031 | Implement place_order over order_send (ADR-0021) | ✅ Complete | `ea4a6a525ab81b2b25be43a7cfdb88d087ead302` |
 
 † **Newly specified, not recovered.** The unmarked rows are evidenced by the
 repository record: the task existed, and the commit it cites is the work.
@@ -228,7 +229,7 @@ governing decision record for ATLAS-TASK-0027, and the ADR-0017 paragraph above
 records that it too remains `Proposed`. ATLAS-TASK-0028 has no record of its
 own: it carried that same implementation into CI. ATLAS-TASK-0029 follows it,
 with a specification file of its own — `docs/tasks/ATLAS-TASK-0029.md` —
-unlike the task before it. This file declares no work after ATLAS-TASK-0030.
+unlike the task before it. This file declares no work after ATLAS-TASK-0031.
 The tasks above are the ones the repository itself
 declares; this file does not speculate past them.
 
@@ -274,7 +275,7 @@ to implement — the whole of its effect is a constraint on what may be built
 next. As with ADR-0013, ADR-0014, ADR-0015, ADR-0016 and ADR-0017, ADR-0018 has
 no row in that table and will not acquire one — a decision is not a task. Unlike
 them, it will acquire no implementing task either, and this file still declares
-no work after ATLAS-TASK-0030.
+no work after ATLAS-TASK-0031.
 
 ADR-0018 carries `Accepted` from its first commit, and that is not a formality
 here. A prohibition that has not been accepted binds nothing, and the record
@@ -2223,6 +2224,28 @@ interval value, no strategy and no execution policy is supplied anywhere.
 `CoreRuntime` still cannot be constructed outside a test — this task
 produces one more pluggable, independently-tested collaborator, not a
 runnable process.
+
+### ATLAS-TASK-0031 — Implement place_order over order_send
+
+`docs/tasks/ATLAS-TASK-0031.md` specifies this task. It implements
+ADR-0021's authorization for `place_order` specifically: `deviation_points`
+and `filling_mode_by_instrument` on both `BrokerSettings` and `MT5Config`,
+a `ConfigurationError` refusal for an unset deviation or an unrecognised
+filling-mode name, and `place_order` itself sending a single immediate
+market deal over `order_send`, translated back through the same
+`to_order` a working order already goes through.
+
+**`modify_order`, `cancel_order` and `close_position` remain
+`NotImplementedError`**, restated because this is the same shape as every
+prior task in this sequence: ADR-0021 unblocked all four trading methods,
+but only `place_order` is implemented here. Each of the other three now
+states its own actual reason for deferring rather than citing
+`place_order` by name, since that citation stopped being true once this
+task landed.
+
+**What this task does not claim**: no `ExecutionPolicy` change, no
+strategy, no backtesting, no runtime wiring. `CoreRuntime` still cannot be
+constructed outside a test.
 
 ## Known documentation debt
 
