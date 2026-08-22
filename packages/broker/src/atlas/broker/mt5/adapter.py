@@ -67,12 +67,14 @@ from atlas.broker.base import BaseBrokerAdapter
 from atlas.broker.exceptions import (
     BrokerDataUnavailableError,
     BrokerOrderRejectedError,
+    BrokerPositionNotFoundError,
     BrokerSymbolNotFoundError,
 )
-from atlas.broker.models import OrderSide, OrderType, SymbolTradeMode
+from atlas.broker.models import Execution, OrderSide, OrderType, PositionSide, SymbolTradeMode
 from atlas.broker.mt5.connection import VENUE, MT5Session, error_from_retcode
 from atlas.broker.mt5.constants import (
     DOMAIN_TO_MT5_ORDER_TYPE,
+    MT5_POSITION_TYPE_TO_SIDE,
     RETCODE_SUCCESS_CODES,
     TIMEFRAME_TO_MT5,
     TRADE_ACTION_DEAL,
@@ -98,7 +100,6 @@ if TYPE_CHECKING:
         Candle,
         Connection,
         ConnectionState,
-        Execution,
         LatencyMilliseconds,
         Money,
         NonNegativeMoney,
@@ -888,24 +889,120 @@ class MT5BrokerAdapter(BaseBrokerAdapter):
         raise NotImplementedError(_TRADING_DEFERRED.format(method="cancel_order"))
 
     def close_position(self, position_id: PositionID, volume: Volume | None = None) -> Execution:
-        """Not available yet: closing results cannot be reported honestly.
+        """Close an open position, in whole or in part.
 
         Args:
             position_id: Ticket of the position to close.
-            volume: How much to close. Defaults to the whole position.
+            volume: How much to close, in lots. Defaults to the whole position.
+
+        Returns:
+            The closing execution: the price, size, commission and swap the
+            venue booked.
 
         Raises:
-            NotImplementedError: Always — closing results cannot be
-                reported honestly.
+            BrokerNotConnectedError: If no session is established.
+            BrokerPositionNotFoundError: If the ticket is unknown or the
+                position is already closed.
+            BrokerOrderRejectedError: If ``position``'s instrument has no
+                configured filling mode, or the venue itself refused the order.
+            BrokerDataUnavailableError: If the venue accepted the closing order
+                but reports no deal for it.
+            BrokerTimeoutError: If the trade server did not answer in time.
+            ValueError: If ``volume`` exceeds the position's open size.
 
         Notes:
-            TODO: implement by sending an opposing order with
-            the ``position`` field set. The port also requires a close filled in
-            several parts to be reported as one execution at the
-            volume-weighted average price, which means reading the resulting
-            deals back out of history rather than trusting the order result.
+            Sends an opposing ``TRADE_ACTION_DEAL`` with the MT5 ``position``
+            field set, so the terminal closes rather than opens — the same
+            deviation and filling-mode configuration ``place_order`` sends,
+            never chosen per call.
+
+            Where the close fills across several deals, the terminal's own
+            ``position`` filter on ``history_deals_get`` returns every deal
+            tied to the position across its life, including the deal(s) that
+            opened it. Only the deals belonging to *this* closing order are
+            aggregated into the result: volume summed, price volume-weighted,
+            commission and swap summed, and the identity of the deal with the
+            latest ``time_msc`` used for ``execution_id`` and ``timestamp`` —
+            there is no single real venue ticket for an aggregate fill.
         """
-        raise NotImplementedError(_TRADING_DEFERRED.format(method="close_position"))
+        terminal = self._terminal()
+
+        raw_positions = terminal.positions_get() or ()
+        position = next(
+            (candidate for candidate in raw_positions if str(candidate.ticket) == position_id),
+            None,
+        )
+        if position is None:
+            msg = f"no open position with ticket {position_id!r}"
+            raise BrokerPositionNotFoundError(msg, position_id=position_id, venue=VENUE)
+
+        position_volume = to_decimal(position.volume)
+        close_volume = position_volume if volume is None else volume
+        if close_volume > position_volume:
+            msg = f"cannot close {close_volume} lots of a position holding {position_volume}"
+            raise ValueError(msg)
+
+        filling_mode = self._session.config.filling_mode_by_instrument.get(position.symbol)
+        if filling_mode is None:
+            msg = f"no filling mode configured for instrument {position.symbol!r}"
+            raise BrokerOrderRejectedError(msg, venue=VENUE)
+
+        side = MT5_POSITION_TYPE_TO_SIDE.get(position.type)
+        if side is None:
+            msg = (
+                f"unknown MetaTrader 5 position type {position.type!r} "
+                f"on ticket {position.ticket!r}"
+            )
+            raise ValueError(msg)
+        closing_side = OrderSide.SELL if side is PositionSide.LONG else OrderSide.BUY
+
+        mt5_request: dict[str, object] = {
+            "action": TRADE_ACTION_DEAL,
+            "symbol": position.symbol,
+            "volume": float(close_volume),
+            "type": DOMAIN_TO_MT5_ORDER_TYPE[(closing_side, OrderType.MARKET)],
+            "deviation": self._session.config.deviation_points,
+            "type_filling": filling_mode,
+            "position": position.ticket,
+        }
+
+        raw = terminal.order_send(mt5_request)
+        if raw is None:
+            context = "order_send returned nothing"
+            raise self._session.error_from_terminal(context)
+        if raw.retcode not in RETCODE_SUCCESS_CODES:
+            raise error_from_retcode(raw.retcode, raw.comment)
+
+        deals = terminal.history_deals_get(position=position.ticket) or ()
+        closing_deals = [deal for deal in deals if deal.order == raw.ticket]
+        if not closing_deals:
+            msg = f"the terminal reported no deal for the order that closed position {position_id}"
+            raise BrokerDataUnavailableError(msg, venue=VENUE)
+
+        total_volume = sum((to_decimal(deal.volume) for deal in closing_deals), start=to_decimal(0))
+        weighted_price = (
+            sum(
+                (to_decimal(deal.price) * to_decimal(deal.volume) for deal in closing_deals),
+                start=to_decimal(0),
+            )
+            / total_volume
+        )
+        total_commission = sum(
+            (to_decimal(deal.commission) for deal in closing_deals), start=to_decimal(0)
+        )
+        total_swap = sum((to_decimal(deal.swap) for deal in closing_deals), start=to_decimal(0))
+        last_deal = max(closing_deals, key=lambda deal: deal.time_msc)
+
+        return Execution(
+            execution_id=str(last_deal.ticket),
+            order_id=str(raw.ticket),
+            symbol=position.symbol,
+            price=weighted_price,
+            volume=total_volume,
+            commission=total_commission,
+            swap=total_swap,
+            timestamp=self._session.clock.to_utc_from_milliseconds(last_deal.time_msc),
+        )
 
     # --- Account --------------------------------------------------------------
 

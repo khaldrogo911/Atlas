@@ -38,6 +38,7 @@ from atlas.broker.exceptions import (
     BrokerError,
     BrokerNotConnectedError,
     BrokerOrderRejectedError,
+    BrokerPositionNotFoundError,
     BrokerSymbolNotFoundError,
     BrokerTimeoutError,
 )
@@ -78,6 +79,7 @@ from tests.unit.broker.mt5.conftest import (
     FakeTick,
     rate_row,
     server_epoch,
+    server_epoch_ms,
 )
 
 if TYPE_CHECKING:
@@ -718,6 +720,130 @@ class TestPlacingAnOrder:
         assert raised.value.code == TRADE_RETCODE_REJECT
 
 
+class TestClosingAPosition:
+    def test_a_full_close_returns_a_correctly_translated_execution(
+        self, adapter: MT5BrokerAdapter, terminal: FakeTerminal
+    ) -> None:
+        terminal.positions = [FakePosition(ticket=POSITION_TICKET)]
+        # The fake filters `history_deals_get(position=...)` by matching a
+        # deal's `order` or its own `ticket` against the filter value — it
+        # models no `position` field — so the closing deal's `ticket` is set
+        # to the position's ticket to satisfy that filter, while `order`
+        # carries the closing order's own ticket, which is what
+        # `close_position` itself filters the returned deals on.
+        terminal.deals = [FakeDeal(ticket=POSITION_TICKET, order=660002)]
+
+        result = adapter.close_position(str(POSITION_TICKET))
+
+        assert terminal.order_send_args == {
+            "action": TRADE_ACTION_DEAL,
+            "symbol": "EURUSD",
+            "volume": 0.1,
+            "type": ORDER_TYPE_SELL,
+            "deviation": 20,
+            "type_filling": ORDER_FILLING_FOK,
+            "position": POSITION_TICKET,
+        }
+        assert result.order_id == "660002"
+        assert result.symbol == "EURUSD"
+        assert result.price == Decimal("1.162")
+        assert result.volume == Decimal("0.1")
+        assert result.commission == Decimal("-0.7")
+        assert result.swap == Decimal("0.0")
+        assert result.timestamp == NOW
+
+    def test_a_partial_close_specifies_the_given_volume(
+        self, adapter: MT5BrokerAdapter, terminal: FakeTerminal
+    ) -> None:
+        terminal.positions = [FakePosition(ticket=POSITION_TICKET)]
+        terminal.deals = [FakeDeal(ticket=POSITION_TICKET, order=660002, volume=0.05)]
+
+        result = adapter.close_position(str(POSITION_TICKET), volume=Decimal("0.05"))
+
+        assert terminal.order_send_args["volume"] == 0.05
+        assert result.volume == Decimal("0.05")
+
+    def test_a_volume_exceeding_the_position_raises_before_reaching_the_terminal(
+        self, adapter: MT5BrokerAdapter, terminal: FakeTerminal
+    ) -> None:
+        terminal.positions = [FakePosition(ticket=POSITION_TICKET, volume=0.1)]
+
+        with pytest.raises(ValueError, match=r"0\.5"):
+            adapter.close_position(str(POSITION_TICKET), volume=Decimal("0.5"))
+
+        assert terminal.calls == ["positions_get"]
+
+    def test_an_unknown_position_id_raises_before_reaching_the_terminal(
+        self, adapter: MT5BrokerAdapter, terminal: FakeTerminal
+    ) -> None:
+        terminal.positions = []
+
+        with pytest.raises(BrokerPositionNotFoundError, match="999999"):
+            adapter.close_position("999999")
+
+        assert terminal.calls == ["positions_get"]
+
+    def test_a_close_filled_across_several_deals_is_aggregated(
+        self, adapter: MT5BrokerAdapter, terminal: FakeTerminal
+    ) -> None:
+        terminal.positions = [FakePosition(ticket=POSITION_TICKET)]
+        terminal.deals = [
+            FakeDeal(
+                ticket=POSITION_TICKET,
+                order=660002,
+                price=1.162,
+                volume=0.06,
+                commission=-0.7,
+                swap=0.0,
+                time_msc=server_epoch_ms(NOW),
+            ),
+            FakeDeal(
+                ticket=POSITION_TICKET,
+                order=660002,
+                price=1.163,
+                volume=0.04,
+                commission=-0.3,
+                swap=-0.05,
+                time_msc=server_epoch_ms(NOW) + 1000,
+            ),
+        ]
+
+        result = adapter.close_position(str(POSITION_TICKET))
+
+        assert result.volume == Decimal("0.1")
+        assert result.price == Decimal("1.1624")
+        assert result.commission == Decimal("-1.0")
+        assert result.swap == Decimal("-0.05")
+        assert result.execution_id == str(POSITION_TICKET)
+        # Both deals share a `ticket` for the reason noted above, so only the
+        # timestamp can prove the deal with the later `time_msc` was picked.
+        assert result.timestamp == NOW + timedelta(milliseconds=1000)
+
+    def test_an_unmapped_instrument_is_refused_without_reaching_the_terminal(
+        self, adapter: MT5BrokerAdapter, terminal: FakeTerminal
+    ) -> None:
+        # The fixture configures a filling mode for EURUSD only.
+        terminal.positions = [FakePosition(ticket=POSITION_TICKET, symbol="GBPUSD")]
+
+        with pytest.raises(BrokerOrderRejectedError, match="GBPUSD"):
+            adapter.close_position(str(POSITION_TICKET))
+
+        assert terminal.calls == ["positions_get"]
+
+    def test_a_rejecting_retcode_translates_through_error_from_retcode(
+        self, adapter: MT5BrokerAdapter, terminal: FakeTerminal
+    ) -> None:
+        terminal.positions = [FakePosition(ticket=POSITION_TICKET)]
+        terminal.order_result = FakeOrderResult(
+            retcode=TRADE_RETCODE_REJECT, comment="Request rejected"
+        )
+
+        with pytest.raises(BrokerOrderRejectedError, match="Request rejected") as raised:
+            adapter.close_position(str(POSITION_TICKET))
+
+        assert raised.value.code == TRADE_RETCODE_REJECT
+
+
 class TestRisk:
     def test_margin_is_the_terminals_own_calculation(
         self, adapter: MT5BrokerAdapter, terminal: FakeTerminal
@@ -860,15 +986,15 @@ class TestDiagnostics:
 
 
 class TestUnavailable:
-    """The six methods that refuse, and the two that deliberately do not.
+    """The five methods that refuse, and the two that deliberately do not.
 
     Each refusal names what is missing, and names the method it came from. That
     is the whole point of the group: a ``NotImplementedError`` with no reason is
-    indistinguishable from an unfinished method, and the three trading ones in
+    indistinguishable from an unfinished method, and the two trading ones in
     particular must not be mistaken for "not written yet" — translating a trade
-    server's verdict is done, and so, since ATLAS-TASK-0031, is a filling mode
-    per instrument and a deviation policy. What is still missing is the deal
-    read-back each of the three specifically needs.
+    server's verdict is done, and so, since ATLAS-TASK-0031 and ATLAS-TASK-0032,
+    is a filling mode per instrument and a deviation policy. What is still
+    missing is the order-state read-back each of the two specifically needs.
     """
 
     def test_modifying_an_order_is_deferred(self, adapter: MT5BrokerAdapter) -> None:
@@ -878,10 +1004,6 @@ class TestUnavailable:
     def test_cancelling_an_order_is_deferred(self, adapter: MT5BrokerAdapter) -> None:
         with pytest.raises(NotImplementedError, match="cancel_order sends nothing to a venue"):
             adapter.cancel_order("660001")
-
-    def test_closing_a_position_is_deferred(self, adapter: MT5BrokerAdapter) -> None:
-        with pytest.raises(NotImplementedError, match="close_position sends nothing to a venue"):
-            adapter.close_position(str(POSITION_TICKET))
 
     def test_the_deferral_no_longer_blames_a_missing_exception_hierarchy(
         self, adapter: MT5BrokerAdapter

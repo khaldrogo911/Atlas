@@ -135,6 +135,7 @@ CALLS: Final[dict[str, Callable[[BrokerAdapter], object]]] = {
 #: every adapter when there is no session. The behaviour under test.
 GUARDED: Final = (
     "can_trade",
+    "close_position",
     "get_account",
     "get_candle",
     "get_candles",
@@ -164,7 +165,6 @@ NEVER_REFUSES: Final = ("ping", "unsubscribe_candles", "unsubscribe_ticks")
 #: The mock implements all seven and guards them like anything else.
 MT5_DEFERRED: Final = (
     "cancel_order",
-    "close_position",
     "modify_order",
     "server_time",
     "subscribe_candles",
