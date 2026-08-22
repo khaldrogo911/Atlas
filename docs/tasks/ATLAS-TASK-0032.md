@@ -47,14 +47,9 @@ and `get_positions` already established. Nothing else changes that.
 
 ## 5. Scope
 
-- Resolve `position_id` to its actual position before acting. **Confirm the
-  exact call before implementing** — `get_positions` filters by `symbol`,
-  not by ticket; check whether `positions_get` (or an equivalent already-
-  declared `Terminal` method) accepts a ticket filter directly, or whether
-  resolution requires listing and filtering client-side. Do not guess at a
-  signature; confirm it against the actual `Terminal` protocol and, if
-  needed, the vendor's real API.
-- If no matching open position exists: `BrokerPositionNotFoundError`.
+- Resolve `position_id` via `terminal.positions_get()` (unfiltered — no
+  ticket-filter parameter exists on this method) and find the entry whose
+  `ticket` matches, client-side. If none matches: `BrokerPositionNotFoundError`.
 - If `volume` is given and exceeds the position's open size: `ValueError`,
   matching the abstract port's documented contract exactly.
 - Build and send an opposing order via `order_send`, reusing
@@ -66,15 +61,16 @@ and `get_positions` already established. Nothing else changes that.
   already exists on the model). On a failing `retcode`, raise
   `error_from_retcode(...)`, exactly as `place_order` does.
 - On a successful `retcode`, call `history_deals_get(position=position_id)`
-  (unchanged signature from its existing use in `get_positions`) and
-  aggregate the returned deals into one `Execution`: `volume` is the sum of
-  the deals' volumes, `price` is the volume-weighted average, `commission`
-  and `swap` are summed, `execution_id` and `timestamp` come from the deal
-  with the latest `time_msc`. If `history_deals_get` returns nothing or an
-  empty sequence after a successful `retcode`, raise `BrokerDataUnavailableError`
-  — the order succeeded but its result cannot be reported, matching the
-  reasoning `get_positions`' own docstring already gives for the same
-  failure mode.
+  and filter the result to deals whose `.order` equals the closing order's
+  own ticket (`raw.ticket` from the `order_send` result) — not every deal
+  the filter returns. `history_deals_get(position=...)` returns every deal
+  tied to the position across its life, including its original opening
+  deal(s); aggregating unfiltered would silently mix historical fills into
+  this close's reported Execution. Aggregate the filtered set into one
+  Execution: volume summed, price volume-weighted, commission and swap
+  summed, execution_id and timestamp from the filtered deal with the
+  latest time_msc. If the filtered set is empty after a successful
+  retcode, raise BrokerDataUnavailableError.
 - Tests: a full close (single deal) returns a correctly translated
   `Execution`; a partial close specifying a smaller `volume` than the
   position holds; a `volume` exceeding the position's size raises
