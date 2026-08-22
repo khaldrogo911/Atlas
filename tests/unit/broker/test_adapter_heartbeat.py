@@ -131,6 +131,8 @@ def _mt5() -> tuple[MT5BrokerAdapter, ManualClock]:
         server="Example-Demo",
         terminal_path=Path("C:/Program Files/Example/terminal64.exe"),
         server_utc_offset=SERVER_OFFSET,
+        deviation_points=20,
+        filling_mode_by_instrument={},
     )
     clock = ManualClock(START)
     session = MT5Session(config, terminal_factory=lambda: as_terminal(FakeTerminal()))
@@ -662,6 +664,8 @@ class TestHowAnAdapterGetsItsClock:
             server="Example-Demo",
             terminal_path=Path("C:/Program Files/Example/terminal64.exe"),
             server_utc_offset=SERVER_OFFSET,
+            deviation_points=20,
+            filling_mode_by_instrument={},
         )
 
         adapter = MT5BrokerAdapter(config)

@@ -33,6 +33,7 @@ from pydantic import ValidationError as PydanticValidationError
 
 from atlas.apps.core.broker_ownership import BrokerOwner
 from atlas.broker.mt5 import MT5BrokerAdapter, MT5Config
+from atlas.broker.mt5.constants import FILLING_MODE_NAME_TO_MT5
 from atlas.config import ConfigurationError
 
 if TYPE_CHECKING:
@@ -44,11 +45,15 @@ __all__ = ["build_broker_owner"]
 def build_broker_owner(settings: AtlasSettings) -> BrokerOwner:
     """Build the owner of this process's broker adapter.
 
-    Translates the four values a session cannot be established without, and
+    Translates the six values a session cannot be established without, and
     passes no others: ``timeout_ms``, ``portable`` and ``server_utc_offset``
     keep the defaults ``MT5Config`` gives them, because no setting corresponds
     to any of the three and inventing one would be a decision this task does not
-    hold.
+    hold. ``filling_mode_by_instrument``'s names are translated through
+    ``FILLING_MODE_NAME_TO_MT5`` on the way in; a name that table does not
+    recognise is a configuration error the settings layer could not have
+    caught, since ADR-0014 keeps it from importing the constants that define
+    what a valid name is.
 
     Args:
         settings: Resolved application settings. Only the broker section is
@@ -63,12 +68,21 @@ def build_broker_owner(settings: AtlasSettings) -> BrokerOwner:
             vocabulary so that the entrypoint's existing handler reports it,
             rather than giving startup a second way to fail.
     """
+    filling_mode_by_instrument: dict[str, int] = {}
+    for symbol, name in settings.broker.filling_mode_by_instrument.items():
+        if name not in FILLING_MODE_NAME_TO_MT5:
+            msg = f"unrecognised filling mode {name!r} for instrument {symbol!r}"
+            raise ConfigurationError(msg)
+        filling_mode_by_instrument[symbol] = FILLING_MODE_NAME_TO_MT5[name]
+
     try:
         config = MT5Config(
             login=settings.broker.login,
             password=settings.broker.password,
             server=settings.broker.server,
             terminal_path=settings.broker.terminal_path,
+            deviation_points=settings.broker.deviation_points,
+            filling_mode_by_instrument=filling_mode_by_instrument,
         )
     except PydanticValidationError as exc:
         msg = f"invalid broker configuration:\n{exc}"

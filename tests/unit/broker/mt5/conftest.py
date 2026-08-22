@@ -30,15 +30,19 @@ from pydantic import SecretStr
 
 from atlas.broker.mt5.connection import MT5Config, MT5Session
 from atlas.broker.mt5.constants import (
+    ORDER_FILLING_FOK,
+    ORDER_STATE_FILLED,
     ORDER_STATE_PLACED,
+    ORDER_TYPE_BUY,
     ORDER_TYPE_BUY_LIMIT,
     POSITION_TYPE_BUY,
     RES_E_AUTH_FAILED,
     SYMBOL_TRADE_MODE_FULL,
+    TRADE_RETCODE_DONE,
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
 
     from atlas.broker.mt5.connection import Terminal
 
@@ -161,6 +165,30 @@ class FakeOrder:
 
 
 @dataclass
+class FakeOrderResult:
+    """Stands in for the result of ``MetaTrader5.order_send()``.
+
+    Carries every field :class:`FakeOrder` does, plus the two ``order_send``
+    adds on top, because :func:`~atlas.broker.mt5.mapper.to_order` is what
+    translates a placed order's result — see ``MT5OrderResult``.
+    """
+
+    retcode: int = TRADE_RETCODE_DONE
+    comment: str = "Request executed"
+    ticket: int = 660002
+    symbol: str = "EURUSD"
+    type: int = ORDER_TYPE_BUY
+    state: int = ORDER_STATE_FILLED
+    volume_initial: float = 0.1
+    price_open: float = 1.162
+    price_stoplimit: float = 0.0
+    sl: float = 0.0
+    tp: float = 0.0
+    time_setup_msc: int = field(default_factory=lambda: server_epoch_ms(NOW))
+    time_done_msc: int = field(default_factory=lambda: server_epoch_ms(NOW))
+
+
+@dataclass
 class FakeDeal:
     """Stands in for one entry of ``MetaTrader5.history_deals_get()``."""
 
@@ -245,6 +273,7 @@ class FakeTerminal:
         self.orders: list[FakeOrder] = []
         self.deals: list[FakeDeal] = []
         self.margin: float | None = 38.75
+        self.order_result: FakeOrderResult | None = FakeOrderResult()
         self.calls: list[str] = []
         self.selected: list[str] = []
         self.shutdown_count = 0
@@ -254,6 +283,7 @@ class FakeTerminal:
         self.rates_args: dict[str, object] = {}
         self.range_args: dict[str, object] = {}
         self.margin_args: dict[str, object] = {}
+        self.order_send_args: Mapping[str, object] = {}
 
     # -- Lifecycle
     def initialize(
@@ -393,6 +423,12 @@ class FakeTerminal:
         }
         return self.margin
 
+    def order_send(self, request: Mapping[str, object]) -> FakeOrderResult | None:
+        """Report the scripted result of a trade request."""
+        self.calls.append("order_send")
+        self.order_send_args = request
+        return self.order_result
+
 
 def as_terminal(terminal: FakeTerminal) -> Terminal:
     """Assert, at type-check time, that the fake satisfies the real protocol.
@@ -424,6 +460,8 @@ def config() -> MT5Config:
         server="Example-Demo",
         terminal_path=Path("C:/Program Files/Example/terminal64.exe"),
         server_utc_offset=SERVER_OFFSET,
+        deviation_points=20,
+        filling_mode_by_instrument={"EURUSD": ORDER_FILLING_FOK},
     )
 
 

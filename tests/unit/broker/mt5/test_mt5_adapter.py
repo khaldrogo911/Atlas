@@ -37,6 +37,7 @@ from atlas.broker.exceptions import (
     BrokerDataUnavailableError,
     BrokerError,
     BrokerNotConnectedError,
+    BrokerOrderRejectedError,
     BrokerSymbolNotFoundError,
     BrokerTimeoutError,
 )
@@ -51,6 +52,7 @@ from atlas.broker.models import (
 )
 from atlas.broker.mt5.adapter import MT5BrokerAdapter
 from atlas.broker.mt5.constants import (
+    ORDER_FILLING_FOK,
     ORDER_STATE_FILLED,
     ORDER_TYPE_BUY,
     ORDER_TYPE_SELL,
@@ -60,6 +62,8 @@ from atlas.broker.mt5.constants import (
     SYMBOL_TRADE_MODE_DISABLED,
     TIMEFRAME_H4,
     TIMEFRAME_M15,
+    TRADE_ACTION_DEAL,
+    TRADE_RETCODE_REJECT,
 )
 from atlas.broker.types import OrderRequest
 from atlas.common.clock import ManualClock
@@ -68,6 +72,7 @@ from tests.unit.broker.mt5.conftest import (
     FakeAccountInfo,
     FakeDeal,
     FakeOrder,
+    FakeOrderResult,
     FakePosition,
     FakeSymbolInfo,
     FakeTick,
@@ -658,6 +663,61 @@ class TestOrders:
         assert [order.symbol for order in adapter.get_orders("GBPUSD")] == ["GBPUSD"]
 
 
+class TestPlacingAnOrder:
+    def test_a_market_order_is_sent_and_the_result_translated(
+        self, adapter: MT5BrokerAdapter, terminal: FakeTerminal
+    ) -> None:
+        request = OrderRequest(
+            symbol="EURUSD", side=OrderSide.BUY, type=OrderType.MARKET, volume=Decimal("0.1")
+        )
+
+        result = adapter.place_order(request)
+
+        assert terminal.calls == ["order_send"]
+        assert terminal.order_send_args == {
+            "action": TRADE_ACTION_DEAL,
+            "symbol": "EURUSD",
+            "volume": 0.1,
+            "type": ORDER_TYPE_BUY,
+            "deviation": 20,
+            "type_filling": ORDER_FILLING_FOK,
+        }
+        assert result.order_id == "660002"
+        assert result.symbol == "EURUSD"
+        assert result.side is OrderSide.BUY
+        assert result.type is OrderType.MARKET
+        assert result.status is OrderStatus.FILLED
+        assert result.volume == Decimal("0.1")
+
+    def test_an_unmapped_instrument_is_refused_without_reaching_the_terminal(
+        self, adapter: MT5BrokerAdapter, terminal: FakeTerminal
+    ) -> None:
+        # The fixture configures a filling mode for EURUSD only.
+        request = OrderRequest(
+            symbol="GBPUSD", side=OrderSide.BUY, type=OrderType.MARKET, volume=Decimal("0.1")
+        )
+
+        with pytest.raises(BrokerOrderRejectedError, match="GBPUSD"):
+            adapter.place_order(request)
+
+        assert terminal.calls == []
+
+    def test_a_rejecting_retcode_translates_through_error_from_retcode(
+        self, adapter: MT5BrokerAdapter, terminal: FakeTerminal
+    ) -> None:
+        terminal.order_result = FakeOrderResult(
+            retcode=TRADE_RETCODE_REJECT, comment="Request rejected"
+        )
+        request = OrderRequest(
+            symbol="EURUSD", side=OrderSide.BUY, type=OrderType.MARKET, volume=Decimal("0.1")
+        )
+
+        with pytest.raises(BrokerOrderRejectedError, match="Request rejected") as raised:
+            adapter.place_order(request)
+
+        assert raised.value.code == TRADE_RETCODE_REJECT
+
+
 class TestRisk:
     def test_margin_is_the_terminals_own_calculation(
         self, adapter: MT5BrokerAdapter, terminal: FakeTerminal
@@ -800,23 +860,16 @@ class TestDiagnostics:
 
 
 class TestUnavailable:
-    """The seven methods that refuse, and the two that deliberately do not.
+    """The six methods that refuse, and the two that deliberately do not.
 
     Each refusal names what is missing, and names the method it came from. That
     is the whole point of the group: a ``NotImplementedError`` with no reason is
-    indistinguishable from an unfinished method, and the four trading ones in
+    indistinguishable from an unfinished method, and the three trading ones in
     particular must not be mistaken for "not written yet" — translating a trade
-    server's verdict is done, and what is still missing is the filling mode,
-    the deviation policy and the deal read-back that a fill report needs.
+    server's verdict is done, and so, since ATLAS-TASK-0031, is a filling mode
+    per instrument and a deviation policy. What is still missing is the deal
+    read-back each of the three specifically needs.
     """
-
-    def test_placing_an_order_is_deferred(self, adapter: MT5BrokerAdapter) -> None:
-        request = OrderRequest(
-            symbol="EURUSD", side=OrderSide.BUY, type=OrderType.MARKET, volume=Decimal("0.1")
-        )
-
-        with pytest.raises(NotImplementedError, match="place_order sends nothing to a venue"):
-            adapter.place_order(request)
 
     def test_modifying_an_order_is_deferred(self, adapter: MT5BrokerAdapter) -> None:
         with pytest.raises(NotImplementedError, match="modify_order sends nothing to a venue"):
@@ -841,20 +894,6 @@ class TestUnavailable:
 
         assert "error_from_retcode" in str(raised.value)
         assert "exception hierarchy" not in str(raised.value)
-
-    def test_no_order_reaches_the_terminal(
-        self, adapter: MT5BrokerAdapter, terminal: FakeTerminal
-    ) -> None:
-        # The refusal is only worth anything if nothing was sent first. This
-        # adapter is pointed at a demo account today and will not always be.
-        request = OrderRequest(
-            symbol="EURUSD", side=OrderSide.BUY, type=OrderType.MARKET, volume=Decimal("0.1")
-        )
-
-        with pytest.raises(NotImplementedError):
-            adapter.place_order(request)
-
-        assert terminal.calls == []
 
     def test_streaming_quotes_is_not_available(self, adapter: MT5BrokerAdapter) -> None:
         # The vendor API polls: it registers no callbacks and opens no push

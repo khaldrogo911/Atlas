@@ -28,6 +28,7 @@ from atlas.apps.core.broker_ownership import BrokerOwner
 from atlas.apps.core.composition import build_broker_owner
 from atlas.broker import BrokerNotConnectedError
 from atlas.broker.mt5 import MT5BrokerAdapter, MT5Config
+from atlas.broker.mt5.constants import ORDER_FILLING_FOK
 from atlas.config import ConfigurationError, load_settings
 
 if TYPE_CHECKING:
@@ -42,6 +43,7 @@ TERMINAL_PATH = r"C:\Program Files\Provider MT5\terminal64.exe"
 # "password" makes this line a hardcoded-credential finding in every scanner.
 SENTINEL = "not-a-real-credential-9f2c1a"
 VENDOR_MODULE = "MetaTrader5"
+DEVIATION_POINTS = "20"
 
 # Exit code the vendor probe uses to say "the module was present". Distinct from
 # 1 so that a probe that crashed is not read as a probe that found the wheel.
@@ -50,7 +52,11 @@ VENDOR_PRESENT = 3
 
 @pytest.fixture
 def broker_env(isolated_env: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Configure the four values a session cannot be established without.
+    """Configure the five values a session cannot be established without.
+
+    ``filling_mode_by_instrument`` is not set here: an empty mapping is not a
+    sentinel ADR-0021 refuses, so the section's own ``{}`` default resolves a
+    session just as readily as a populated one would.
 
     Returns:
         The hermetic working directory, which a subprocess inherits as its cwd.
@@ -59,6 +65,7 @@ def broker_env(isolated_env: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("ATLAS_BROKER__PASSWORD", SENTINEL)
     monkeypatch.setenv("ATLAS_BROKER__SERVER", SERVER)
     monkeypatch.setenv("ATLAS_BROKER__TERMINAL_PATH", TERMINAL_PATH)
+    monkeypatch.setenv("ATLAS_BROKER__DEVIATION_POINTS", DEVIATION_POINTS)
     return isolated_env
 
 
@@ -202,6 +209,21 @@ class TestTheTranslationRefusesWhatCannotOpenASession:
         assert "broker" in reported
         assert "terminal_path" in reported
 
+    def test_an_unset_deviation_is_refused_and_the_field_is_named(
+        self, isolated_env: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        assert isolated_env.exists()
+        monkeypatch.setenv("ATLAS_BROKER__LOGIN", LOGIN)
+        monkeypatch.setenv("ATLAS_BROKER__PASSWORD", SENTINEL)
+        monkeypatch.setenv("ATLAS_BROKER__SERVER", SERVER)
+        monkeypatch.setenv("ATLAS_BROKER__TERMINAL_PATH", TERMINAL_PATH)
+
+        with pytest.raises(ConfigurationError) as raised:
+            build_broker_owner(load_settings())
+
+        reported = str(raised.value)
+        assert "deviation_points" in reported
+
     def test_a_refusal_of_another_field_still_carries_no_credential(
         self, isolated_env: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -311,6 +333,43 @@ class TestTheOwnerIsBuiltFromTheSettings:
         assert config.password.get_secret_value() == SENTINEL
         assert config.server == SERVER
         assert config.terminal_path == Path(TERMINAL_PATH)
+        assert config.deviation_points == int(DEVIATION_POINTS)
+        assert config.filling_mode_by_instrument == {}
+
+    def test_a_configured_filling_mode_translates_to_its_mt5_constant(
+        self, broker_env: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        assert broker_env.exists()
+
+        monkeypatch.setenv(
+            "ATLAS_BROKER__FILLING_MODE_BY_INSTRUMENT", '{"EURUSD": "ORDER_FILLING_FOK"}'
+        )
+
+        config = _config_of(build_broker_owner(load_settings()))
+
+        assert config.filling_mode_by_instrument == {"EURUSD": ORDER_FILLING_FOK}
+
+    def test_an_unrecognised_filling_mode_name_is_refused_and_both_are_named(
+        self, broker_env: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A name absent from ``FILLING_MODE_NAME_TO_MT5`` is refused.
+
+        It is a configuration error the settings layer could not have caught,
+        since ADR-0014 keeps it from importing the constants that define what
+        a valid name is.
+        """
+        assert broker_env.exists()
+
+        monkeypatch.setenv(
+            "ATLAS_BROKER__FILLING_MODE_BY_INSTRUMENT", '{"EURUSD": "NOT_A_REAL_MODE"}'
+        )
+
+        with pytest.raises(ConfigurationError) as raised:
+            build_broker_owner(load_settings())
+
+        reported = str(raised.value)
+        assert "NOT_A_REAL_MODE" in reported
+        assert "EURUSD" in reported
 
     def test_the_password_is_still_held_as_a_secret(self, broker_env: Path) -> None:
         """Translation passes the ``SecretStr`` through; it never unwraps one."""

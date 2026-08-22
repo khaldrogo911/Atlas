@@ -320,6 +320,8 @@ def _mt5_rig(retry: RetryPolicy | None) -> Rig:
         server="Example-Demo",
         terminal_path=Path("C:/Program Files/Example/terminal64.exe"),
         server_utc_offset=SERVER_OFFSET,
+        deviation_points=20,
+        filling_mode_by_instrument={},
     )
     clock = ManualClock(START)
     terminal = _FlakyTerminal(clock)

@@ -245,6 +245,8 @@ class TestConfig:
             password=SecretStr("x"),
             server="Example-Demo",
             terminal_path=Path("terminal64.exe"),
+            deviation_points=20,
+            filling_mode_by_instrument={},
         )
 
         assert minimal.clock.offset == timedelta(0)
@@ -278,6 +280,8 @@ class TestConfig:
                 password=SecretStr("x"),
                 server="Example-Demo",
                 terminal_path=Path("terminal64.exe"),
+                deviation_points=20,
+                filling_mode_by_instrument={},
             )
 
     def test_an_empty_server_name_is_rejected(self) -> None:
@@ -287,6 +291,8 @@ class TestConfig:
                 password=SecretStr("x"),
                 server="",
                 terminal_path=Path("terminal64.exe"),
+                deviation_points=20,
+                filling_mode_by_instrument={},
             )
 
 
@@ -316,6 +322,8 @@ class TestTheNotConfiguredValuesAreRefused:
                     "password": password,
                     "server": "Example-Demo",
                     "terminal_path": Path("terminal64.exe"),
+                    "deviation_points": 20,
+                    "filling_mode_by_instrument": {},
                 }
             )
 
@@ -335,6 +343,8 @@ class TestTheNotConfiguredValuesAreRefused:
                 password=SecretStr("x"),
                 server="Example-Demo",
                 terminal_path=Path(supplied),
+                deviation_points=20,
+                filling_mode_by_instrument={},
             )
 
         assert [error["loc"] for error in raised.value.errors()] == [("terminal_path",)]
@@ -345,6 +355,8 @@ class TestTheNotConfiguredValuesAreRefused:
             password=SecretStr("x"),
             server="Example-Demo",
             terminal_path=Path("terminal64.exe"),
+            deviation_points=20,
+            filling_mode_by_instrument={},
         )
 
         assert config.password.get_secret_value() == "x"
@@ -358,6 +370,8 @@ class TestTheNotConfiguredValuesAreRefused:
             password=SecretStr(" "),
             server="Example-Demo",
             terminal_path=Path("terminal64.exe"),
+            deviation_points=20,
+            filling_mode_by_instrument={},
         )
 
         assert config.password.get_secret_value() == " "
@@ -370,6 +384,8 @@ class TestTheNotConfiguredValuesAreRefused:
             password=SecretStr("x"),
             server="Example-Demo",
             terminal_path=Path(".."),
+            deviation_points=20,
+            filling_mode_by_instrument={},
         )
 
         assert config.terminal_path == Path("..")
@@ -396,6 +412,8 @@ class TestWhatConfigurationValidationDeliberatelyDoesNotCheck:
             password=SecretStr("x"),
             server="Example-Demo",
             terminal_path=Path(windows_style),
+            deviation_points=20,
+            filling_mode_by_instrument={},
         )
 
         assert config.terminal_path == Path(windows_style)
@@ -409,6 +427,8 @@ class TestWhatConfigurationValidationDeliberatelyDoesNotCheck:
             password=SecretStr("x"),
             server="Example-Demo",
             terminal_path=missing,
+            deviation_points=20,
+            filling_mode_by_instrument={},
         )
 
         # Equal to what was passed, so the value was neither rejected nor
@@ -429,6 +449,8 @@ class TestWhatConfigurationValidationDeliberatelyDoesNotCheck:
                 password=SecretStr("x"),
                 server="Example-Demo",
                 terminal_path=Path("/atlas-no-such-terminal-9f2c1a/terminal64.exe"),
+                deviation_points=20,
+                filling_mode_by_instrument={},
             )
 
         assert config.terminal_path == Path("/atlas-no-such-terminal-9f2c1a/terminal64.exe")

@@ -37,6 +37,7 @@ __all__ = [
     "AUTHENTICATION_ERROR_CODES",
     "CONNECTION_ERROR_CODES",
     "DOMAIN_TO_MT5_ORDER_TYPE",
+    "FILLING_MODE_NAME_TO_MT5",
     "MT5_ORDER_STATE_TO_STATUS",
     "MT5_ORDER_TYPE_TO_DOMAIN",
     "MT5_POSITION_TYPE_TO_SIDE",
@@ -44,6 +45,9 @@ __all__ = [
     "MT5_TO_TIMEFRAME",
     "MT5_TRADE_MODE_TO_DOMAIN",
     "NOT_FOUND_ERROR_CODES",
+    "ORDER_FILLING_FOK",
+    "ORDER_FILLING_IOC",
+    "ORDER_FILLING_RETURN",
     "ORDER_STATE_CANCELED",
     "ORDER_STATE_EXPIRED",
     "ORDER_STATE_FILLED",
@@ -101,6 +105,7 @@ __all__ = [
     "TIMEFRAME_M30",
     "TIMEFRAME_TO_MT5",
     "TIMEOUT_ERROR_CODES",
+    "TRADE_ACTION_DEAL",
     "TRADE_RETCODE_CANCEL",
     "TRADE_RETCODE_CLIENT_DISABLES_AT",
     "TRADE_RETCODE_CLOSE_ONLY",
@@ -210,6 +215,41 @@ MT5_ORDER_TYPE_TO_DOMAIN: Final[Mapping[int, tuple[OrderSide, OrderType]]] = {
 
 DOMAIN_TO_MT5_ORDER_TYPE: Final[Mapping[tuple[OrderSide, OrderType], int]] = {
     value: key for key, value in MT5_ORDER_TYPE_TO_DOMAIN.items()
+}
+
+# --- Trade actions and filling modes -------------------------------------------
+#
+# `action` and `type_filling` fields of an `order_send` request. Atlas sends
+# exactly one action — an immediate market deal — and configures exactly one
+# filling mode per instrument rather than choosing among the three at request
+# time; see ADR-0021.
+
+#: Places an order and fills it immediately at the current market price.
+TRADE_ACTION_DEAL: Final = 1
+
+#: Fill the whole requested volume at once, at any number of prices, or fill
+#: none of it.
+ORDER_FILLING_FOK: Final = 0
+
+#: Fill as much of the requested volume as is available and cancel the rest.
+ORDER_FILLING_IOC: Final = 1
+
+#: Fill as much of the requested volume as is available immediately and leave
+#: the remainder working as a new order.
+ORDER_FILLING_RETURN: Final = 2
+
+#: Every filling-mode constant above, keyed by its own name.
+#:
+#: The bridge between two vocabularies for the same three values:
+#: `BrokerSettings.filling_mode_by_instrument` (`atlas.config`) holds the
+#: constant's name as a plain string, because ADR-0014 forbids that package
+#: from importing this one; `MT5Config.filling_mode_by_instrument` holds the
+#: int itself. `build_broker_owner` looks a configured name up here to cross
+#: from one to the other.
+FILLING_MODE_NAME_TO_MT5: Final[Mapping[str, int]] = {
+    "ORDER_FILLING_FOK": ORDER_FILLING_FOK,
+    "ORDER_FILLING_IOC": ORDER_FILLING_IOC,
+    "ORDER_FILLING_RETURN": ORDER_FILLING_RETURN,
 }
 
 # --- Order states -------------------------------------------------------------

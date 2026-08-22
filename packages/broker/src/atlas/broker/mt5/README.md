@@ -143,16 +143,16 @@ Two further rules:
 
 ## Current limitations
 
-Seven of the port's thirty-one methods raise `NotImplementedError`. None is a
+Six of the port's thirty-one methods raise `NotImplementedError`. None is a
 placeholder that could have been filled with a plausible value.
 
-All seven are satisfied by `atlas.broker.mock` (ATLAS-TASK-0006), which is the
+All six are satisfied by `atlas.broker.mock` (ATLAS-TASK-0006), which is the
 evidence that they are limitations of this venue and of the work not yet scoped
 against it — not defects in the contract.
 
 ### Trading — not scoped to a task
 
-`place_order`, `modify_order`, `cancel_order`, `close_position`.
+`modify_order`, `cancel_order`, `close_position`.
 
 The terminal capability exists (`order_send`), and since ATLAS-TASK-0005 so does
 the translation of its verdict: `error_from_retcode` in `connection.py` turns any

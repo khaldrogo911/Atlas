@@ -45,6 +45,7 @@ that would tell a caller to retry something it should not.
 from __future__ import annotations
 
 import contextlib
+from collections.abc import Mapping
 from datetime import timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Final, Protocol, cast
@@ -85,6 +86,7 @@ if TYPE_CHECKING:
         MT5AccountInfo,
         MT5Deal,
         MT5Order,
+        MT5OrderResult,
         MT5Position,
         MT5RateRow,
         MT5SymbolInfo,
@@ -293,6 +295,10 @@ class Terminal(Protocol):
         """Return the margin the venue would take for a hypothetical position."""
         ...
 
+    def order_send(self, request: Mapping[str, object]) -> MT5OrderResult | None:
+        """Submit a trade request and return the server's verdict."""
+        ...
+
 
 def load_terminal() -> Terminal:
     """Import and return the ``MetaTrader5`` module.
@@ -355,6 +361,20 @@ class MT5Config(BaseModel):
             "vendor's auto-discovery: a host commonly has several terminals "
             "installed, one per broker, and letting the SDK choose makes which "
             "account Atlas trades a property of the filesystem."
+        )
+    )
+    deviation_points: int = Field(
+        gt=0,
+        description=(
+            "Maximum acceptable slippage from the requested price, in points, "
+            "on every order this session places."
+        ),
+    )
+    filling_mode_by_instrument: Mapping[str, int] = Field(
+        description=(
+            "Which order-filling mode to request, keyed by instrument symbol. An "
+            "instrument absent here is refused when an order is placed for it, "
+            "not at session construction."
         )
     )
     timeout_ms: int = Field(

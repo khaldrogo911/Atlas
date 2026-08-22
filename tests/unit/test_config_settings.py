@@ -45,8 +45,15 @@ pool_max_size = 10
 CONFIG_PACKAGE_DIR: Final = Path(inspect.getfile(atlas.config)).parent
 CONFIG_PACKAGE_SOURCES: Final = tuple(sorted(CONFIG_PACKAGE_DIR.rglob("*.py")))
 
-#: The four broker values, and the whole of them.
-BROKER_FIELDS: Final = ("login", "password", "server", "terminal_path")
+#: The six broker values, and the whole of them.
+BROKER_FIELDS: Final = (
+    "login",
+    "password",
+    "server",
+    "terminal_path",
+    "deviation_points",
+    "filling_mode_by_instrument",
+)
 
 #: Every section on :class:`AtlasSettings` after ATLAS-TASK-0030.
 SECTION_NAMES: Final = frozenset(
@@ -544,14 +551,17 @@ class TestTheBrokerSection:
         assert broker.password == SecretStr("")
         assert broker.server == ""
         assert broker.terminal_path == Path()
+        assert broker.deviation_points == 0
+        assert broker.filling_mode_by_instrument == {}
 
-    def test_the_section_has_exactly_four_fields_in_order(self) -> None:
-        """A fifth field fails here rather than arriving unnoticed.
+    def test_the_section_has_exactly_six_fields_in_order(self) -> None:
+        """A seventh field fails here rather than arriving unnoticed.
 
-        ADR-0014 fixed the surface at the four values a session cannot be
-        established without. ``timeout_ms``, ``portable`` and
-        ``server_utc_offset`` are deliberately absent — each has a deliberate
-        default where it is consumed, and nothing here reads them.
+        ADR-0014 fixed the surface at the values a session cannot be
+        established without; ATLAS-TASK-0031 (ADR-0021) added the two this
+        task owns. ``timeout_ms``, ``portable`` and ``server_utc_offset`` are
+        deliberately absent — each has a deliberate default where it is
+        consumed, and nothing here reads them.
         """
         assert tuple(BrokerSettings.model_fields) == BROKER_FIELDS
 

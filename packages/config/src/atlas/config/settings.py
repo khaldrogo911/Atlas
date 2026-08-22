@@ -185,7 +185,7 @@ class RiskSettings(BaseModel):
 class BrokerSettings(BaseModel):
     """What a trading session needs in order to be established.
 
-    These four values are restated here in this package's own primitives rather
+    These six values are restated here in this package's own primitives rather
     than imported from the package that will consume them. ADR-0014 records the
     decision, its reason — the configuration package would otherwise import a
     feature package to learn its own shape — and its cost: two declarations of
@@ -198,10 +198,14 @@ class BrokerSettings(BaseModel):
     Every field carries a default, because every section of
     :class:`AtlasSettings` is built by ``default_factory`` and a process holding
     no trading configuration must still resolve its settings. The defaults
-    permit nothing all the same: ``0`` is not a usable account number and an
-    empty string is not a usable server, so no session can be opened from them.
-    Absence is not permission here for the same reason it is not in
-    :class:`RiskSettings`. The refusal lands where a connection is assembled
+    permit nothing all the same: ``0`` is not a usable account number, an empty
+    string is not a usable server, and a deviation of ``0`` opens no session
+    either — ADR-0021 gives it the same eager, non-zero requirement ``login``
+    already has. An empty ``filling_mode_by_instrument`` is different: it does
+    not stop a session opening, only an order on an instrument absent from it,
+    per ADR-0021's own reasoning for leaving that refusal at the call that names
+    the instrument. Absence is not permission here for the same reason it is not
+    in :class:`RiskSettings`. The refusal lands where a connection is assembled
     rather than in this section — and since ATLAS-TASK-0023 that place is
     start-up, because a trading adapter is assembled there unconditionally, in
     every environment. A process whose broker section describes no session that
@@ -247,6 +251,25 @@ class BrokerSettings(BaseModel):
             "installed, one per account provider, and letting a vendor SDK choose "
             "makes which account Atlas trades a property of the filesystem. Supply "
             "ATLAS_BROKER__TERMINAL_PATH."
+        ),
+    )
+    deviation_points: int = Field(
+        default=0,
+        ge=0,
+        description=(
+            "Maximum acceptable slippage from the requested price, in points. "
+            "Zero is the not-configured default and opens nothing. Supply "
+            "ATLAS_BROKER__DEVIATION_POINTS."
+        ),
+    )
+    filling_mode_by_instrument: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Which order-filling policy to request, keyed by instrument symbol. "
+            "Each value is the exact name of the filling-mode constant the "
+            "trading package exposes. Empty is the not-configured default; an "
+            "instrument absent here is refused when an order is placed for it, "
+            "not at start-up. Supply ATLAS_BROKER__FILLING_MODE_BY_INSTRUMENT."
         ),
     )
 

@@ -67,6 +67,7 @@ __all__ = [
     "MT5AccountInfo",
     "MT5Deal",
     "MT5Order",
+    "MT5OrderResult",
     "MT5Position",
     "MT5RateRow",
     "MT5SymbolInfo",
@@ -248,6 +249,20 @@ class MT5Order(Protocol):
     tp: float
     time_setup_msc: int
     time_done_msc: int
+
+
+@runtime_checkable
+class MT5OrderResult(MT5Order, Protocol):
+    """The fields Atlas reads from ``MetaTrader5.order_send()``'s result.
+
+    Extends :class:`MT5Order` rather than declaring a parallel field set,
+    because a successful placement is translated through :func:`to_order` —
+    the same function a working order already goes through — and not through
+    a second translation invented for this one call site.
+    """
+
+    retcode: int
+    comment: str
 
 
 @runtime_checkable

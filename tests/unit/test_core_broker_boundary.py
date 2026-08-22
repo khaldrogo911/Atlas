@@ -126,7 +126,7 @@ CONCRETE_ADAPTER_PACKAGES: Final = ("atlas.broker.mock", "atlas.broker.mt5")
 #: The implementation ADR-0015 selected, and the configuration type it is built
 #: from. Nameable in :data:`COMPOSITION_MODULE`, for translation and
 #: construction, and nowhere else under `apps/`.
-SELECTED_IMPLEMENTATION_NAMES: Final = ("MT5BrokerAdapter", "MT5Config")
+SELECTED_IMPLEMENTATION_NAMES: Final = ("MT5BrokerAdapter", "MT5Config", "FILLING_MODE_NAME_TO_MT5")
 
 #: Implementations ADR-0015 did not select. Nameable nowhere under `apps/`.
 #:

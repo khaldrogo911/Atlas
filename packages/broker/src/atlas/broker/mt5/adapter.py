@@ -15,20 +15,19 @@ are worth being able to reason about separately.
 
 Coverage
 --------
-Seven of the port's thirty-one methods raise :class:`NotImplementedError`,
-each with the reason at the call site. They fall into three groups, and none of
+Six of the port's thirty-one methods raise :class:`NotImplementedError`, each
+with the reason at the call site. They fall into three groups, and none of
 them is a placeholder that could have been filled in with a plausible-looking
 value:
 
-Trading — ``place_order``, ``modify_order``, ``cancel_order``, ``close_position``
-    Not scoped to a task yet. ATLAS-TASK-0005 removed the reason they were
-    blocked — :func:`~atlas.broker.mt5.connection.error_from_retcode` now tells
-    ``BrokerOrderRejectedError`` from ``BrokerInsufficientMarginError`` from
-    ``BrokerTimeoutError`` — but it deliberately stopped at the translation and
-    sent no orders. What remains is not translation: filling mode per
-    instrument, a deviation policy, and reading deals back to report a fill at
-    the price it actually happened. Returning an ``Order`` without having sent
-    one would be worse than not implementing them.
+Trading — ``modify_order``, ``cancel_order``, ``close_position``
+    Not scoped to a task yet. ``place_order`` was scoped by ATLAS-TASK-0031,
+    which consumed ADR-0021's authorization to configure a filling mode per
+    instrument and a deviation policy rather than choosing either at request
+    time; it sends orders now. Each of these three still needs a read of the
+    venue's resulting state that neither ATLAS-TASK-0005's retcode translation
+    nor ADR-0021 settled — described at each method. Returning an ``Order``
+    without one would be worse than not implementing them.
 
 Streaming — ``subscribe_ticks``, ``subscribe_candles``
     The MetaTrader 5 Python API polls. It has no callback registration and no
@@ -65,10 +64,19 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Final
 
 from atlas.broker.base import BaseBrokerAdapter
-from atlas.broker.exceptions import BrokerDataUnavailableError, BrokerSymbolNotFoundError
+from atlas.broker.exceptions import (
+    BrokerDataUnavailableError,
+    BrokerOrderRejectedError,
+    BrokerSymbolNotFoundError,
+)
 from atlas.broker.models import OrderSide, OrderType, SymbolTradeMode
-from atlas.broker.mt5.connection import VENUE, MT5Session
-from atlas.broker.mt5.constants import DOMAIN_TO_MT5_ORDER_TYPE, TIMEFRAME_TO_MT5
+from atlas.broker.mt5.connection import VENUE, MT5Session, error_from_retcode
+from atlas.broker.mt5.constants import (
+    DOMAIN_TO_MT5_ORDER_TYPE,
+    RETCODE_SUCCESS_CODES,
+    TIMEFRAME_TO_MT5,
+    TRADE_ACTION_DEAL,
+)
 from atlas.broker.mt5.mapper import (
     to_account,
     to_broker_version,
@@ -135,15 +143,16 @@ _UNKNOWN_BROKER: Final = "unknown"
 #: ``terminal_info().ping_last`` is microseconds; the domain reports milliseconds.
 _MICROSECONDS_PER_MILLISECOND: Final = 1000.0
 
-#: Why the four trading methods raise. Written once because the reason is one
-#: reason, and four paraphrases of it would drift apart.
+#: Why the three remaining trading methods raise. Written once because the
+#: reason is one reason, and three paraphrases of it would drift apart.
 _TRADING_DEFERRED: Final = (
     "{method} sends nothing to a venue. Translating a trade server's verdict is "
-    "solved — see atlas.broker.mt5.connection.error_from_retcode — but order "
-    "submission also needs a filling mode per instrument, a deviation policy, "
-    "and a read of the resulting deals to report the price a fill actually got. "
-    "No task has scoped those, and sending an order that cannot be reported on "
-    "accurately is worse than not sending one."
+    "solved — see atlas.broker.mt5.connection.error_from_retcode — and so, since "
+    "ATLAS-TASK-0031, is a filling mode per instrument and a deviation policy. "
+    "What remains is a read of the venue's resulting state that this method "
+    "specifically needs; see its own docstring for which read. No task has "
+    "scoped that, and sending a request that cannot be reported on accurately "
+    "is worse than not sending one."
 )
 
 
@@ -156,8 +165,9 @@ class MT5BrokerAdapter(BaseBrokerAdapter):
     MetaTrader5 package is not installed — the import failure surfaces on
     connect, where it is actionable, rather than at start-up.
 
-    Only ever used against a dedicated demo account at this stage. The four
-    trading methods do not send anything to a venue.
+    Only ever used against a dedicated demo account at this stage.
+    ``place_order`` sends real orders; ``modify_order``, ``cancel_order`` and
+    ``close_position`` do not send anything to a venue yet.
 
     Session bookkeeping — the cached latency and heartbeat, the
     :class:`~atlas.broker.models.Connection` snapshot built from them,
@@ -775,28 +785,55 @@ class MT5BrokerAdapter(BaseBrokerAdapter):
     # --- Trading --------------------------------------------------------------
 
     def place_order(self, request: OrderRequest) -> Order:
-        """Not available yet: order results cannot be reported honestly.
+        """Submit an order and return the venue's resulting state.
 
         Args:
             request: What to place.
 
+        Returns:
+            The order as the terminal reports it immediately after
+            submission, translated through :func:`~atlas.broker.mt5.mapper.to_order`
+            — the same function a working order already goes through.
+
         Raises:
-            NotImplementedError: Always. The terminal capability exists —
-                ``order_send`` — and since ATLAS-TASK-0005 so does the
-                translation of its verdict:
-                :func:`~atlas.broker.mt5.connection.error_from_retcode` returns
-                ``BrokerOrderRejectedError``, ``BrokerInsufficientMarginError``
-                or ``BrokerTimeoutError`` as the retcode requires. What is
-                missing is the rest of order submission, which no task has
-                scoped, and a half-specified order is not worth sending.
+            BrokerNotConnectedError: If no session is established.
+            BrokerOrderRejectedError: If ``request.symbol`` has no configured
+                filling mode, or the venue itself refused the order.
+            BrokerInsufficientMarginError: If the account cannot support it.
+            BrokerTimeoutError: If the trade server did not answer in time.
+            BrokerError: If the terminal accepted the call but returned nothing.
 
         Notes:
-            TODO: implement over ``order_send``, translating the result with
-            ``error_from_retcode``. The remaining decisions are filling-mode
-            selection per instrument and a deviation policy; neither has an
-            obviously right answer, which is why they are not settled here.
+            Sends a single immediate market deal — ``TRADE_ACTION_DEAL`` — with
+            the deviation and filling mode ADR-0021 has this session configured
+            with, never chosen per call. ``price`` is included only when
+            ``request`` carries one, since a MARKET order has none.
         """
-        raise NotImplementedError(_TRADING_DEFERRED.format(method="place_order"))
+        terminal = self._terminal()
+
+        filling_mode = self._session.config.filling_mode_by_instrument.get(request.symbol)
+        if filling_mode is None:
+            msg = f"no filling mode configured for instrument {request.symbol!r}"
+            raise BrokerOrderRejectedError(msg, venue=VENUE)
+
+        mt5_request: dict[str, object] = {
+            "action": TRADE_ACTION_DEAL,
+            "symbol": request.symbol,
+            "volume": float(request.volume),
+            "type": DOMAIN_TO_MT5_ORDER_TYPE[(request.side, request.type)],
+            "deviation": self._session.config.deviation_points,
+            "type_filling": filling_mode,
+        }
+        if request.price is not None:
+            mt5_request["price"] = float(request.price)
+
+        raw = terminal.order_send(mt5_request)
+        if raw is None:
+            context = "order_send returned nothing"
+            raise self._session.error_from_terminal(context)
+        if raw.retcode not in RETCODE_SUCCESS_CODES:
+            raise error_from_retcode(raw.retcode, raw.comment)
+        return to_order(raw, self._session.clock)
 
     def modify_order(
         self,
@@ -819,8 +856,8 @@ class MT5BrokerAdapter(BaseBrokerAdapter):
             volume: New quantity.
 
         Raises:
-            NotImplementedError: Always, for the reason given on
-                :meth:`place_order`.
+            NotImplementedError: Always — amendment results cannot be
+                reported honestly.
 
         Notes:
             TODO: implement over ``order_send`` with
@@ -838,8 +875,8 @@ class MT5BrokerAdapter(BaseBrokerAdapter):
             order_id: Ticket of the order to cancel.
 
         Raises:
-            NotImplementedError: Always, for the reason given on
-                :meth:`place_order`. The case that matters here is an order
+            NotImplementedError: Always — cancellation results cannot be
+                reported honestly. The case that matters here is an order
                 that fills while the cancellation is in flight, which the port
                 requires be reported as a ``FILLED`` order rather than as an
                 error. That is a read of the order's resulting state, not a
@@ -858,8 +895,8 @@ class MT5BrokerAdapter(BaseBrokerAdapter):
             volume: How much to close. Defaults to the whole position.
 
         Raises:
-            NotImplementedError: Always, for the reason given on
-                :meth:`place_order`.
+            NotImplementedError: Always — closing results cannot be
+                reported honestly.
 
         Notes:
             TODO: implement by sending an opposing order with

@@ -149,6 +149,7 @@ GUARDED: Final = (
     "latency",
     "margin_available",
     "margin_required",
+    "place_order",
     "version",
 )
 
@@ -165,7 +166,6 @@ MT5_DEFERRED: Final = (
     "cancel_order",
     "close_position",
     "modify_order",
-    "place_order",
     "server_time",
     "subscribe_candles",
     "subscribe_ticks",
@@ -224,6 +224,8 @@ def _mt5() -> MT5BrokerAdapter:
         server="Example-Demo",
         terminal_path=Path("C:/Program Files/Example/terminal64.exe"),
         server_utc_offset=SERVER_OFFSET,
+        deviation_points=20,
+        filling_mode_by_instrument={},
     )
     return MT5BrokerAdapter(
         config, session=MT5Session(config, terminal_factory=lambda: as_terminal(FakeTerminal()))
