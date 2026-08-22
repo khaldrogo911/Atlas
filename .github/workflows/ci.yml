@@ -93,6 +93,7 @@ jobs:
       ATLAS_BROKER__PASSWORD: ci-throwaway-broker
       ATLAS_BROKER__SERVER: CI-Throwaway
       ATLAS_BROKER__TERMINAL_PATH: /opt/atlas/ci/terminal64.exe
+      ATLAS_BROKER__DEVIATION_POINTS: "20"
 
     steps:
       - name: Checkout
@@ -151,6 +152,7 @@ jobs:
             -e ATLAS_BROKER__PASSWORD \
             -e ATLAS_BROKER__SERVER \
             -e ATLAS_BROKER__TERMINAL_PATH \
+            -e ATLAS_BROKER__DEVIATION_POINTS \
             atlas/atlas-core:ci >configured.out 2>configured.err || status=$?
           STATUS="$status" python3 - <<'PY'
           import json
