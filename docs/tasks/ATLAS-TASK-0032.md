@@ -81,6 +81,14 @@ and `get_positions` already established. Nothing else changes that.
   last deal's ticket and timestamp; an unmapped instrument's filling mode
   refuses without reaching the terminal, mirroring `place_order`'s existing
   test; a rejecting `retcode` translates through `error_from_retcode`.
+- `close_position` moves from `MT5_DEFERRED` into `GUARDED`
+  (`tests/unit/broker/test_base_adapter.py`) — the same consequence
+  `place_order` had in `ATLAS-TASK-0031`: it now checks the connection
+  before anything else, via the same `self._terminal()` guard-first
+  pattern, and the file's three-way partition requires it live somewhere.
+  `test_closing_a_position_is_deferred` (`tests/unit/broker/mt5/test_mt5_adapter.py`)
+  is replaced rather than left to assert the old unconditional
+  `NotImplementedError`. No other item in either file's sets changes.
 
 ## 6. Non-goals
 
@@ -105,6 +113,8 @@ its spec.
 - `tests/unit/broker/mt5/conftest.py` (modified, if a fake multi-deal
   history fixture is needed beyond what `TASK-0031` already added — confirm
   before assuming a new fixture is required)
+- `tests/unit/broker/test_base_adapter.py` (modified — moves
+  close_position from MT5_DEFERRED to GUARDED)
 - `docs/tasks/ATLAS-TASK-0032.md` (this file, new)
 - `docs/ROADMAP.md` (modified — at merge time, per precedent)
 
